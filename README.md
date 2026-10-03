@@ -67,7 +67,7 @@ The rules that follow from that shape:
 - **Capability boundaries live in code.** Teleporting, spawning items, changing gamemode and
   killing players are never exposed to the model. `ToolDispatcher` enforces it.
 
-Read the full design in **[ARCHITECTURE.md](ARCHITECTURE.md)**.
+Read the full design in **[ARCHITECTURE.md](ARCHITECTURE.md)** *(Chinese)*.
 
 ---
 
@@ -89,14 +89,14 @@ Read the full design in **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 
 - **Four layers of memory** — working (the last few minutes), episodic (what actually
   happened), semantic (how Minecraft works), and social (what it knows about *you*: trust,
-  interaction count, "喜欢建房子"). The last three survive restarts.
+  interaction count, "likes building"). The last three survive restarts.
 - **Needs** — hunger, safety, social, exploration, achievement, resources, curiosity. These
   drive behaviour when nobody has asked for anything.
 - **Persona** — curiosity / courage / humour / helpfulness / risk-aversion, plus a speaking
   style, so two companions do not behave identically.
 - **Goal stack with dynamic priorities** — drop to 35% health and `SURVIVE` jumps to 100
   while `EXPLORE` collapses. Nobody hard-codes that transition.
-- **Reflection** — when a step fails it works out *why* ("需要铁镐") and tries a different
+- **Reflection** — when a step fails it works out *why* ("I need an iron pickaxe") and tries a different
   approach, up to three times, then says honestly what it could not do.
 - **It talks** — announces what it is about to do, reports when it is done, says what went
   wrong, and occasionally chats unprompted. Rate-limited so it never spams.
@@ -129,10 +129,10 @@ Manual override: `/as lang zh_cn`, `/as lang en_us`, or the setting in the K men
 High-frequency requests never touch a paid API:
 
 ```
-"去挖点铁"        → MiningSkill        → break_block        （确定性，0 token）
-"跟着我"          → SocialSkill        → follow_player      （确定性，0 token）
-"建个房子"        → BuildingSkill      → build              （确定性，0 token）
-"用这些做个陷阱"   → no skill matches  → LLM                （真正开放的任务才花钱）
+"mine some iron"           → MiningSkill      → break_block      (deterministic, 0 tokens)
+"follow me"                → SocialSkill      → follow_player    (deterministic, 0 tokens)
+"build me a house"         → BuildingSkill    → build            (deterministic, 0 tokens)
+"build a trap out of these"→ no skill matches → LLM              (genuinely open-ended, is billed)
 ```
 
 ---
@@ -200,11 +200,14 @@ baseUrl = "https://api.deepseek.com"
 Talk to it in ordinary language — you do not need to memorise syntax.
 
 ```
-/as 帮我弄一个羊排
-/as 去挖点铁
-/as 在我前面建个房子
-/as 跟着我
+/as get me a steak
+/as go mine some iron
+/as build me a house in front of me
+/as follow me
 ```
+
+> You can talk to it in any language it knows: those examples work just as well in Chinese,
+> and it replies in whichever language you used.
 
 ### Commands
 
@@ -233,11 +236,15 @@ and steel, a fishing rod, building materials.
 
 | Page | Contents |
 | --- | --- |
-| 大模型配置 | Provider, API key, model, tokens, temperature |
-| AI 权限与行为 | Agent on/off, autonomy, roam radius, chat, narration, PvP defence |
-| AI 能力开关 | Per-capability toggles (mining, building, crafting, combat, …) |
+| Language Model | Provider, API key, model, tokens, temperature |
+| AI Permissions & Behaviour | Agent on/off, autonomy, roam radius, chat, narration, PvP defence, AI language |
+| AI Capabilities | Per-capability toggles (mining, building, crafting, combat, …) |
 
 All pages scroll, and the behaviour settings take effect **without restarting**.
+
+> The page titles above are what an **English** client shows. They are translated by Minecraft,
+> so a Chinese client sees the Chinese names instead — see
+> [It speaks your language](#it-speaks-your-language).
 
 ---
 
@@ -282,7 +289,7 @@ in-game and apply immediately.
 ## Status: what works, what doesn't
 
 **AiSteve is functional and genuinely playable, but it is not finished.** The honest
-breakdown lives in **[docs/STATUS.md](docs/STATUS.md)**. The headline items:
+breakdown lives in **[docs/STATUS.md](docs/STATUS.md)** *(Chinese)*. The headline items:
 
 **Works:** layered agent runtime · 22 tools · 16 actions · four-layer memory · 6 skills ·
 goal stack with dynamic priorities · reflection · progress narration · player protection ·
@@ -359,16 +366,22 @@ src/main/java/com/steve/ai/
 
 ## Documentation
 
-| Document | Contents |
-| --- | --- |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Full design: layers, data flows, timing, permission model, migration path |
-| [docs/STATUS.md](docs/STATUS.md) | Implemented / not implemented / known deficiencies / roadmap |
-| [CHANGELOG.md](CHANGELOG.md) | Every change, with the *reason* behind each bug fix |
-| [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | "The AI does nothing" and other common problems *(Chinese)* |
-| [docs/USAGE.zh-CN.md](docs/USAGE.zh-CN.md) | Full usage guide *(Chinese)* |
-| [docs/BUILD.zh-CN.md](docs/BUILD.zh-CN.md) | Build and local development guide *(Chinese)* |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Development setup, architecture rules, how to extend |
-| [CLAUDE.md](CLAUDE.md) | Orientation notes for AI coding assistants |
+| Document | Language | Contents |
+| --- | --- | --- |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Chinese | Full design: layers, data flows, timing, permission model, migration path |
+| [docs/STATUS.md](docs/STATUS.md) | Chinese | Implemented / not implemented / known deficiencies / roadmap |
+| [CHANGELOG.md](CHANGELOG.md) | Chinese | Every change, with the *reason* behind each bug fix |
+| [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | Chinese | "The AI does nothing" and other common problems |
+| [docs/USAGE.zh-CN.md](docs/USAGE.zh-CN.md) | Chinese | Full usage guide |
+| [docs/BUILD.zh-CN.md](docs/BUILD.zh-CN.md) | Chinese | Build and local development guide |
+| [docs/DESIGN-BRIEF.zh-CN.md](docs/DESIGN-BRIEF.zh-CN.md) | Chinese | Original design discussion this architecture came from |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | English | Development setup, architecture rules, how to extend |
+| [CLAUDE.md](CLAUDE.md) | English | Orientation notes for AI coding assistants |
+
+> **English readers:** the architecture and status documents are currently Chinese-only. The
+> English README, CONTRIBUTING and CLAUDE.md summarise the same material, but if you need the
+> full design, machine translation is your best bet for now — English versions are on the
+> [roadmap](docs/STATUS.md).
 
 ---
 
