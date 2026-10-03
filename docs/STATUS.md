@@ -91,7 +91,22 @@
 - ✅ 行为类设置**改完立即生效**，无需重启
 - ✅ 多 provider：deepseek / openai / groq / gemini
 - ✅ 容错：熔断、重试（指数退避）、限流、缓存、规则降级
-- ✅ 中英文本地化（`zh_cn.json` / `en_us.json`）
+- ✅ 中英文本地化（`zh_cn.json` / `en_us.json`，92 键）
+
+### 1.6 语言适配 / Language
+
+分两条路，因为 Minecraft 只允许其中一条自动：
+
+| 类型 | 做法 | 效果 |
+| --- | --- | --- |
+| 界面 / 指令 / 按键 | `Component.translatable`（客户端解析） | ✅ 每个客户端各自适配，**无需配置** |
+| AI 说的话 | `AgentLang`（服务端渲染） | ✅ 跟随**跟它说话的玩家**的语言 |
+
+- ✅ 四个设置界面、全部 `/as` 指令反馈、登录提示均已本地化
+- ✅ AI 播报、闲聊、技能叙述、工具结果、反思原因均已本地化（127 键 × 2）
+- ✅ 提示词注入输出语言指令，示例也按语言切换
+- ✅ `/as lang [zh_cn|en_us]` 手动指定；设置界面可切换；`[agent].language` 配置项
+- ✅ 两个校验脚本（`scripts/check-lang.js`、`check-keys.js`）防止漏配键
 
 ---
 
@@ -211,6 +226,18 @@
 `SteveManager` 强制单一实例，`CollaborativeBuildManager` 的多人协作逻辑因此
 长期处于"只有 1 个参与者"的状态。多 AI 需要重新处理资源竞争与通信。
 
+### 10. 🟡 AI 同一时间只能说一种语言
+
+对话语言是**全局**的，跟随最后跟它说话的人。双语服务器上中英玩家交替发言时，
+语言会来回切换，而且它对所有人广播同一条消息，后说话的一方会看到自己不期望的语言。
+
+要彻底解决需要**按玩家分别维护对话状态**，并考虑是否改为定向发送（`player.sendSystemMessage`
+而不是广播）—— 那又会削弱"这是一个公共聊天里的玩家"的感觉。属于设计取舍，不是遗漏。
+
+**提示词正文与工具说明仍是中文**：它们是玩家看不到的内部指令。输出语言由
+`agent.prompt.language` 指令 + 本地化示例控制，主流模型都能正确处理
+"指令语言 ≠ 输出语言"。彻底本地化工具说明需要约 150 条键，收益有限，暂不做。
+
 ---
 
 ## 四、路线图 / Roadmap
@@ -261,6 +288,8 @@
 ```
 ./gradlew compileJava             → BUILD SUCCESSFUL
 ./gradlew build -x test fatJar    → BUILD SUCCESSFUL
+node scripts/check-lang.js        → 4 份语言包合法，中英键位完全配对
+node scripts/check-keys.js        → 引用 214 键，缺失 0
 ```
 
 产物 / Artifacts:

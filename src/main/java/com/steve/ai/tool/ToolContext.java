@@ -4,6 +4,7 @@ import com.steve.ai.action.ActionExecutor;
 import com.steve.ai.action.Task;
 import com.steve.ai.entity.SteveEntity;
 import com.steve.ai.execution.MovementController;
+import com.steve.ai.i18n.AgentLang;
 import com.steve.ai.memory.MemoryManager;
 import com.steve.ai.protocol.Observation;
 import com.steve.ai.protocol.Permission;
@@ -116,7 +117,7 @@ public final class ToolContext {
         for (String key : keys) {
             String value = call.string(key);
             if (value == null || value.isBlank()) {
-                return ToolResult.badArguments("缺少参数 '" + key + "'");
+                return ToolResult.badArguments(AgentLang.t("agent.tool.missing_arg", key));
             }
         }
         return null;

@@ -1,5 +1,6 @@
 package com.steve.ai.tool;
 
+import com.steve.ai.i18n.AgentLang;
 import com.steve.ai.protocol.Permission;
 import com.steve.ai.protocol.RiskLevel;
 import com.steve.ai.protocol.ToolCall;
@@ -53,7 +54,7 @@ public final class InventoryTools {
             public ToolResult invoke(ToolContext ctx, ToolCall call) {
                 var observation = ctx.observation();
                 if (observation == null || observation.inventory().isEmpty()) {
-                    return ToolResult.ok("背包是空的", Map.of("items", java.util.List.of()));
+                    return ToolResult.ok(AgentLang.t("agent.tool.inv.empty"), Map.of("items", java.util.List.of()));
                 }
                 StringBuilder sb = new StringBuilder();
                 Map<String, Object> data = new LinkedHashMap<>();
@@ -93,7 +94,7 @@ public final class InventoryTools {
                 args.put("quantity", quantity);
                 ctx.enqueue("craft", args);
 
-                return ToolResult.scheduled("开始合成 " + quantity + " 个 " + item);
+                return ToolResult.scheduled(AgentLang.t("agent.tool.craft.start", quantity, item));
             }
         };
     }
@@ -119,22 +120,22 @@ public final class InventoryTools {
 
                 Item item = ActionUtils.parseItem(name);
                 if (item == Items.AIR) {
-                    return ToolResult.badArguments("不认识的物品：" + name);
+                    return ToolResult.badArguments(AgentLang.t("agent.tool.drop.unknown", name));
                 }
                 if (ctx.steve().getInventory().count(item) <= 0) {
-                    return ToolResult.missingTool("我身上没有 " + name);
+                    return ToolResult.missingTool(AgentLang.t("agent.tool.drop.none", name));
                 }
 
                 int removed = ctx.steve().getInventory().removeItem(item, count);
                 if (removed <= 0) {
-                    return ToolResult.error("丢弃失败");
+                    return ToolResult.error(AgentLang.t("agent.tool.drop.failed"));
                 }
                 ItemStack stack = new ItemStack(item, removed);
                 ItemEntity entity = new ItemEntity(ctx.steve().level(),
                     ctx.steve().getX(), ctx.steve().getY() + 0.5, ctx.steve().getZ(), stack);
                 ctx.steve().level().addFreshEntity(entity);
 
-                return ToolResult.ok("丢下了 " + removed + " 个 " + name);
+                return ToolResult.ok(AgentLang.t("agent.tool.drop.done", removed, name));
             }
         };
     }
@@ -152,8 +153,7 @@ public final class InventoryTools {
             public ToolResult invoke(ToolContext ctx, ToolCall call) {
                 // Honest refusal: the mine/place actions already pick the best carried tool.
                 // Faking success here would make the brain believe a step happened that did not.
-                return ToolResult.unsupported(
-                    "不需要手动装备：挖矿/放置时会自动选用背包里最合适的工具。");
+                return ToolResult.unsupported(AgentLang.t("agent.tool.equip.unsupported"));
             }
         };
     }
@@ -187,7 +187,7 @@ public final class InventoryTools {
                 args.put("count", count);
                 ctx.enqueue("give", args);
 
-                return ToolResult.scheduled("把 " + item + " 交给玩家");
+                return ToolResult.scheduled(AgentLang.t("agent.tool.give.start", item));
             }
         };
     }

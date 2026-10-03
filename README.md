@@ -106,6 +106,24 @@ Read the full design in **[ARCHITECTURE.md](ARCHITECTURE.md)**.
   is a reflex, not a decision it spends thirty seconds on.
 - **It hears you** — ordinary chat within 48 blocks reaches it, not just `/as say`.
 
+### It speaks your language
+
+Two things are handled two different ways, because Minecraft only allows one of them to be
+automatic:
+
+- **The interface follows each client.** Every menu, command reply and keybind is translated by
+  Minecraft itself, so on the same server a Chinese client sees Chinese and an English client sees
+  English — no configuration and no restart.
+- **The AI follows whoever is talking to it.** Speak English and it answers in English; switch to
+  Chinese and it switches with you. Idle chatter uses the configured default.
+
+> This split is not laziness. **The server cannot know your client's language** — that setting
+> never leaves the client. UI text is resolved on the client, so it adapts automatically; the AI's
+> chat lines are assembled server-side, so they need their own track. Mirroring the player is also
+> simply how a person behaves: you do not configure the language a teammate replies in.
+
+Manual override: `/as lang zh_cn`, `/as lang en_us`, or the setting in the K menu.
+
 ### It costs what it should
 
 High-frequency requests never touch a paid API:
@@ -199,6 +217,7 @@ Talk to it in ordinary language — you do not need to memorise syntax.
 | `/as agent` | Agent state: persona, needs, memory, loop phase |
 | `/as goals` | The goal stack (type, priority, source) |
 | `/as memory` | What it remembers about players and the past |
+| `/as lang [zh_cn\|en_us]` | Show or set which language the AI speaks |
 | `/as stop` | Stop the current task immediately |
 | `/as come` | Call it to your side (if it got lost) |
 | `/as say <text>` | Give it a task, or just chat |
@@ -252,6 +271,7 @@ roamRadius            = 48     # how far it may stray before heading back (block
 idleChat              = true   # speak up on its own
 progressNarration     = true   # announce plans and report results
 defendAgainstPlayers  = true   # fight back when another player attacks you
+language              = "zh_cn" # AI speech language (default; follows the speaker after that)
 ```
 
 Provider/API settings need a restart. `[agent]` and `[behavior]` settings can be changed
@@ -287,6 +307,12 @@ roam limit · scrollable settings GUI · multi-provider LLM with circuit breaker
   armour and shields cannot be worn.
 - 🟡 **No structure templates ship with the repo**, so `build` always uses the procedural
   generator.
+- 🟡 **The AI speaks one language at a time** — it mirrors whoever spoke to it last, so on a
+  bilingual server the language can flip between speakers. Per-player conversation state would
+  be needed to fix that properly.
+- 🟡 **The prompt's instructions and tool descriptions are written in Chinese.** They are internal
+  text the player never sees; the *output* language is controlled by an explicit directive plus
+  localised examples, which every major model handles.
 
 ---
 

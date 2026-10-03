@@ -73,6 +73,11 @@ public class SteveMod {
             // Cache the behaviour settings so per-tick code never touches the config spec,
             // and so editing them in the settings GUI takes effect without a restart.
             com.steve.ai.config.RuntimeSettings.refresh();
+
+            // Load the AI-speech bundles. The mod's *UI* is translated by Minecraft itself
+            // (assets/aisteve/lang/*.json), but the AI's own chat lines are built server-side
+            // and need their own bundles.
+            com.steve.ai.i18n.AgentLang.load();
         });
     }
 

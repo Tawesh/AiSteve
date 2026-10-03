@@ -75,8 +75,8 @@ public abstract class ScrollableSettingsScreen extends Screen {
         this.contentHeight = contentHeight;
     }
 
-    /** 副标题/操作提示，子类可覆盖。 */
-    protected String hintText() {
+    /** 副标题/操作提示，子类可覆盖。返回 translatable 组件以便跟随客户端语言。 */
+    protected Component hintText() {
         return null;
     }
 
@@ -163,10 +163,10 @@ public abstract class ScrollableSettingsScreen extends Screen {
 
         // 标题区固定，不随内容滚动
         graphics.drawCenteredString(this.font, this.title, this.width / 2, 16, 0xFFFFFF);
-        String hint = hintText();
-        if (hint != null && !hint.isEmpty()) {
-            graphics.drawCenteredString(this.font, Component.literal(hint),
-                this.width / 2, 30, 0xAAAAAA);
+
+        Component hint = hintText();
+        if (hint != null) {
+            graphics.drawCenteredString(this.font, hint, this.width / 2, 30, 0xAAAAAA);
         }
 
         // 内容区裁剪：滚动时控件不会越界盖住标题

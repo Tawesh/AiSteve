@@ -81,7 +81,8 @@ public final class ToolResult {
     }
 
     public static ToolResult unknownTool(String tool) {
-        return new ToolResult(false, UNKNOWN_TOOL, "未知工具：" + tool, null);
+        return new ToolResult(false, UNKNOWN_TOOL,
+            com.steve.ai.i18n.AgentLang.t("agent.tool.unknown", tool), null);
     }
 
     public static ToolResult badArguments(String message) {

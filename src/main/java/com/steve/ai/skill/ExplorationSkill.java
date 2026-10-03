@@ -1,6 +1,7 @@
 package com.steve.ai.skill;
 
 import com.steve.ai.config.RuntimeSettings;
+import com.steve.ai.i18n.AgentLang;
 import com.steve.ai.protocol.Observation;
 import com.steve.ai.protocol.ToolCall;
 
@@ -61,8 +62,8 @@ public final class ExplorationSkill implements Skill {
         }
 
         String narrative = target == null
-            ? "在附近转转，看看有什么"
-            : "在附近找找 " + target;
+            ? AgentLang.t("agent.skill.explore.around")
+            : AgentLang.t("agent.skill.explore.find", target);
         return SkillPlan.of(narrative, new ToolCall("explore", args, narrative));
     }
 }

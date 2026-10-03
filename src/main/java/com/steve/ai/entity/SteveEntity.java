@@ -8,6 +8,7 @@ import com.steve.ai.agent.AgentRuntime;
 import com.steve.ai.config.SteveConfig;
 import com.steve.ai.event.AgentEvent;
 import com.steve.ai.event.AgentEventType;
+import com.steve.ai.i18n.AgentLang;
 import com.steve.ai.memory.SteveMemory;
 import com.steve.ai.memory.WorldMemory;
 import net.minecraft.nbt.CompoundTag;
@@ -183,7 +184,8 @@ public class SteveEntity extends PathfinderMob {
                     // Successfully added, remove from player's hand
                     heldItem.shrink(1);
 
-                    this.sendChatMessage("收到了 " + toGive.getHoverName().getString() + "，谢谢！");
+                    this.sendChatMessage(AgentLang.t("aisteve.event.got_item",
+                        toGive.getHoverName().getString()));
                     SteveMod.LOGGER.info("Player {} gave {} x1 to Steve '{}'",
                         player.getName().getString(),
                         toGive.getItem(),
@@ -191,7 +193,7 @@ public class SteveEntity extends PathfinderMob {
 
                     return InteractionResult.SUCCESS;
                 } else {
-                    this.sendChatMessage("我的背包满了...");
+                    this.sendChatMessage(AgentLang.t("aisteve.event.bag_full_chat"));
                     return InteractionResult.PASS;
                 }
             }
@@ -256,6 +258,11 @@ public class SteveEntity extends PathfinderMob {
         if (text == null || text.isBlank()) {
             return;
         }
+
+        // 让 AI 的说话语言跟随玩家：你用英文问它，它就用英文回你。
+        // 这是服务端唯一能推断出"该说哪种语言"的途径 —— Minecraft 的客户端语言设置
+        // 不会上传到服务端（模组界面由客户端自己翻译，不需要这条路径）。
+        AgentLang.observePlayerSpeech(text);
 
         // 动态读取，这样在设置里关掉分层 Agent 后立刻回到旧路径，无需重启。
         if (agentRuntime != null && com.steve.ai.config.RuntimeSettings.agentEnabled()) {

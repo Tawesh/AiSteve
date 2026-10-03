@@ -42,6 +42,17 @@ public class SteveConfig {
      * repertoire.</p>
      */
     public static final ForgeConfigSpec.BooleanValue DEFEND_AGAINST_PLAYERS;
+    /**
+     * The language the AI speaks when nobody has spoken yet.
+     *
+     * <p>Once a player talks to the AI, the language follows <em>them</em> - a companion that
+     * answers in the language you addressed it in is what a real teammate does. This setting only
+     * decides the starting language and the fallback for idle chatter.</p>
+     *
+     * <p>Note this is separate from the mod's UI, which has no setting at all: the interface is
+     * translated by Minecraft itself and always matches each client's own language.</p>
+     */
+    public static final ForgeConfigSpec.ConfigValue<String> AGENT_LANGUAGE;
 
     static {
         ForgeConfigSpec.Builder builder = new ForgeConfigSpec.Builder();
@@ -142,6 +153,14 @@ public class SteveConfig {
                      "true  = it defends you in PvP too (default)",
                      "false = it never targets players, under any circumstance")
             .define("defendAgainstPlayers", true);
+
+        AGENT_LANGUAGE = builder
+            .comment("Language the AI speaks: 'zh_cn' or 'en_us'.",
+                     "This is the STARTING language and the fallback for idle chatter.",
+                     "Once a player talks to the AI it mirrors THEIR language, and switches back",
+                     "whenever someone addresses it in the other one.",
+                     "The mod's own UI is not affected - Minecraft translates that per client.")
+            .define("language", "zh_cn");
 
         builder.pop();
 

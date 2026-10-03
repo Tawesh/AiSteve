@@ -1,5 +1,6 @@
 package com.steve.ai.skill;
 
+import com.steve.ai.i18n.AgentLang;
 import com.steve.ai.protocol.Observation;
 import com.steve.ai.protocol.ToolCall;
 
@@ -48,7 +49,9 @@ public final class MiningSkill implements Skill {
         args.put("block", block);
         args.put("quantity", count);
 
-        String narrative = (wood ? "去砍 " : "去挖 ") + count + " 个 " + block;
+        String narrative = wood
+            ? AgentLang.t("agent.skill.mining.chop", count, block)
+            : AgentLang.t("agent.skill.mining.dig", count, block);
         return SkillPlan.of(narrative, new ToolCall("break_block", args, narrative));
     }
 }

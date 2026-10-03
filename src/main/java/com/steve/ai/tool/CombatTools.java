@@ -1,5 +1,6 @@
 package com.steve.ai.tool;
 
+import com.steve.ai.i18n.AgentLang;
 import com.steve.ai.protocol.Observation;
 import com.steve.ai.protocol.Permission;
 import com.steve.ai.protocol.RiskLevel;
@@ -54,7 +55,7 @@ public final class CombatTools {
                 // Guard rail: never let the model target a player, unless that specific player
                 // is on the temporary defence whitelist (they attacked the player we protect).
                 if (isPlayerName(ctx, target) && !ctx.isAllowedPlayerTarget(target)) {
-                    return ToolResult.denied("我不会攻击玩家（包括你）");
+                    return ToolResult.denied(AgentLang.t("agent.tool.attack.no_players"));
                 }
 
                 Map<String, Object> args = new LinkedHashMap<>();
@@ -62,7 +63,7 @@ public final class CombatTools {
                 args.put("quantity", Math.max(1, call.integer("quantity", 1)));
                 ctx.enqueue("attack", args);
 
-                return ToolResult.scheduled("开始攻击 " + target);
+                return ToolResult.scheduled(AgentLang.t("agent.act.attack", target));
             }
         };
     }
@@ -84,13 +85,13 @@ public final class CombatTools {
                 }
                 String target = call.string("target");
                 if (isPlayerName(ctx, target) && !ctx.isAllowedPlayerTarget(target)) {
-                    return ToolResult.denied("我不会攻击玩家");
+                    return ToolResult.denied(AgentLang.t("agent.tool.attack.no_players_short"));
                 }
                 Map<String, Object> args = new LinkedHashMap<>();
                 args.put("target", target);
                 args.put("quantity", 1);
                 ctx.enqueue("attack", args);
-                return ToolResult.scheduled("用武器攻击 " + target);
+                return ToolResult.scheduled(AgentLang.t("agent.act.attack", target));
             }
         };
     }
@@ -109,7 +110,7 @@ public final class CombatTools {
                 Observation observation = ctx.observation();
                 Observation.EntityView threat = observation == null ? null : observation.nearestHostile();
                 if (threat == null) {
-                    return ToolResult.ok("附近没有威胁，不需要逃");
+                    return ToolResult.ok(AgentLang.t("agent.tool.flee.no_threat"));
                 }
 
                 double distance = call.decimal("distance", FLEE_DISTANCE);
@@ -133,7 +134,7 @@ public final class CombatTools {
                 args.put("z", (int) Math.floor(targetZ));
                 ctx.enqueue("pathfind", args);
 
-                return ToolResult.scheduled("从 " + threat.type() + " 处撤离");
+                return ToolResult.scheduled(AgentLang.t("agent.tool.flee.start", threat.type()));
             }
         };
     }

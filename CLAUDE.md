@@ -184,6 +184,27 @@ action is only detected via `ActionExecutor.ExecutionListener#onActionFinished`,
 and `Needs` maintains its own satiety, relieved by `Needs.onAte()` when a `use_item(self=true)`
 step runs.
 
+## Localisation (two tracks — do not mix them)
+
+1. **Mod UI text** → `Component.translatable("aisteve.…")` + `assets/aisteve/lang/zh_cn.json`
+   / `en_us.json`. Resolved by Minecraft on each **client**, so it adapts per player with zero
+   configuration.
+2. **Text the AI says** → `AgentLang.t("agent.…")` + `assets/aisteve/agent/strings_<locale>.json`.
+   These are assembled **server-side** and then broadcast, and the server cannot know any
+   client's language setting, so the conversation language is tracked separately and follows
+   whoever last spoke to the AI (`AgentLang.observePlayerSpeech`).
+
+Rules:
+- Never add a raw string to a chat line, a command reply or a window title. Use the right track.
+- The `agent/` bundles live outside `lang/` on purpose — `lang/` is loaded by the client's
+  resource manager and would be the wrong consumer.
+- Run `node scripts/check-lang.js` and `node scripts/check-keys.js` after touching any bundle.
+  `check-keys.js` catches typo'd or missing keys, which otherwise surface at runtime as the
+  literal key name appearing in chat.
+- When adding a new tool/skill, its user-visible strings go in **both** `agent/` bundles.
+  The prompt's own instructions stay Chinese (internal, not player-visible); the *output*
+  language is driven by the directive + localised examples in `AgentPromptBuilder`.
+
 **Threading.** Commands and chat arrive on non-server threads. `AgentLoop.requestInstruction`
 only **enqueues** (`ConcurrentLinkedQueue`); `processInbox()` drains it on the server thread
 inside `tick()`. Never touch agent state directly from a command/event thread.

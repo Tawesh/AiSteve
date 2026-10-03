@@ -80,3 +80,14 @@
     # true  = it defends you in PvP too (default)
     # false = it never targets players, under any circumstance
     defendAgainstPlayers = true
+
+    # Language the AI speaks: 'zh_cn' or 'en_us'.
+    #
+    # This is the STARTING language and the fallback for idle chatter. Once a player
+    # talks to the AI it mirrors THEIR language, and switches back whenever someone
+    # addresses it in the other one - which is what a real teammate would do.
+    #
+    # The mod's own UI is NOT affected by this: Minecraft translates the interface
+    # per client, so a Chinese client sees Chinese menus and an English client sees
+    # English ones on the same server, with no configuration.
+    language = "zh_cn"

@@ -161,12 +161,10 @@ public class ServerEventHandler {
 
         SteveEntity steve = SteveMod.getSteveManager().getSingleSteve();
         if (steve != null) {
-            player.sendSystemMessage(Component.literal(
-                "§a[AiSteve] §fAI 玩家 §e" + steve.getSteveName()
-                    + "§f 已就绪。下达指令：§b/as <指令>"));
+            player.sendSystemMessage(Component.translatable("aisteve.event.ready",
+                steve.getSteveName()));
         } else {
-            player.sendSystemMessage(Component.literal(
-                "§a[AiSteve] §f还没有 AI 玩家。用 §b/as create <名字>§f 创建一个。"));
+            player.sendSystemMessage(Component.translatable("aisteve.event.none"));
         }
     }
 
@@ -188,20 +186,20 @@ public class ServerEventHandler {
 
         // Adoptions are routine (chunk loading), duplicates are worth telling the player about.
         if (result.discarded() > 0) {
-            broadcast(server, "§e[AiSteve] §f发现并清理了 "
-                + result.discarded() + " 个多余的 AI 玩家（本模组只支持 1 个）。");
+            broadcast(server, Component.translatable("aisteve.event.duplicates",
+                result.discarded()));
         } else if (!quiet && result.adopted() > 0) {
             SteveEntity steve = manager.getSingleSteve();
             if (steve != null) {
-                broadcast(server, "§a[AiSteve] §f已接管 AI 玩家 §e" + steve.getSteveName() + "§f。");
+                broadcast(server, Component.translatable("aisteve.event.adopted",
+                    steve.getSteveName()));
             }
         }
     }
 
-    private static void broadcast(MinecraftServer server, String message) {
-        Component component = Component.literal(message);
+    private static void broadcast(MinecraftServer server, Component message) {
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
-            player.sendSystemMessage(component);
+            player.sendSystemMessage(message);
         }
     }
 }

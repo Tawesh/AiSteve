@@ -1,6 +1,5 @@
 package com.steve.ai.client.gui;
 
-import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
@@ -8,8 +7,9 @@ import net.minecraft.network.chat.Component;
 /**
  * 主设置菜单。
  *
- * <p>改为继承 {@link ScrollableSettingsScreen} 后，即使窗口很矮也不会再出现按钮掉出屏幕、
- * 无法点击的问题。</p>
+ * <p>所有文本使用 {@link Component#translatable}，因此界面语言由 Minecraft 自己按
+ * <b>每个客户端</b>的语言设置渲染 —— 中文客户端看到中文，英文客户端看到英文，
+ * 同一个服务器上可以并存，不需要任何配置。</p>
  */
 public class MainSettingsScreen extends ScrollableSettingsScreen {
 
@@ -17,12 +17,12 @@ public class MainSettingsScreen extends ScrollableSettingsScreen {
     private static final int ROW_HEIGHT = 20;
 
     public MainSettingsScreen(Screen parent) {
-        super(Component.literal("AiSteve 设置"), parent);
+        super(Component.translatable("aisteve.screen.main.title"), parent);
     }
 
     @Override
-    protected String hintText() {
-        return "配置 AI 玩家的功能和行为";
+    protected Component hintText() {
+        return Component.translatable("aisteve.screen.main.hint");
     }
 
     @Override
@@ -32,28 +32,28 @@ public class MainSettingsScreen extends ScrollableSettingsScreen {
         int gap = 10;
 
         addContent(Button.builder(
-                Component.literal("大模型配置"),
+                Component.translatable("aisteve.screen.main.llm"),
                 button -> open(new ConfigScreen(this)))
             .bounds(x, y, BUTTON_WIDTH, ROW_HEIGHT)
             .build(), y);
         y += ROW_HEIGHT + gap;
 
         addContent(Button.builder(
-                Component.literal("AI权限与行为"),
+                Component.translatable("aisteve.screen.main.permissions"),
                 button -> open(new PermissionsScreen(this)))
             .bounds(x, y, BUTTON_WIDTH, ROW_HEIGHT)
             .build(), y);
         y += ROW_HEIGHT + gap;
 
         addContent(Button.builder(
-                Component.literal("AI能力开关"),
+                Component.translatable("aisteve.screen.main.capabilities"),
                 button -> open(new CapabilitiesScreen(this)))
             .bounds(x, y, BUTTON_WIDTH, ROW_HEIGHT)
             .build(), y);
         y += ROW_HEIGHT + gap * 2;
 
         addContent(Button.builder(
-                Component.literal("完成"),
+                Component.translatable("aisteve.screen.main.done"),
                 button -> goBack())
             .bounds(this.width / 2 - 75, y, 150, ROW_HEIGHT)
             .build(), y);
@@ -65,10 +65,5 @@ public class MainSettingsScreen extends ScrollableSettingsScreen {
         if (this.minecraft != null) {
             this.minecraft.setScreen(screen);
         }
-    }
-
-    @Override
-    protected void renderContent(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        // 本页没有额外的文字标签需要跟随滚动。
     }
 }

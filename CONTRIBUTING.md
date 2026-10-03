@@ -239,6 +239,10 @@ repeatedly saved future maintainers.
 - [ ] Commit messages follow the convention above.
 - [ ] If behaviour changed, `CHANGELOG.md` says what the user saw before and after.
 - [ ] If it is a user-visible gap or limitation, `docs/STATUS.md` is updated.
+- [ ] If you added any user-visible string, it is in **both** language bundles, and
+      `node scripts/check-lang.js && node scripts/check-keys.js` reports no missing keys.
+      See the Localisation section in `CLAUDE.md` — the two tracks (client UI vs AI speech) are
+      deliberately separate and must not be mixed up.
 
 ---
 

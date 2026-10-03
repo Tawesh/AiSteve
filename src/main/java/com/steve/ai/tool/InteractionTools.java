@@ -1,5 +1,6 @@
 package com.steve.ai.tool;
 
+import com.steve.ai.i18n.AgentLang;
 import com.steve.ai.protocol.Permission;
 import com.steve.ai.protocol.RiskLevel;
 import com.steve.ai.protocol.ToolCall;
@@ -62,7 +63,7 @@ public final class InteractionTools {
                 args.put("quantity", quantity);
                 ctx.enqueue("mine", args);
 
-                return ToolResult.scheduled("去挖 " + quantity + " 个 " + block);
+                return ToolResult.scheduled(AgentLang.t("agent.tool.break.start", quantity, block));
             }
         };
     }
@@ -93,8 +94,9 @@ public final class InteractionTools {
                 ctx.enqueue("place", args);
 
                 // The action itself will refuse (and say so) when the block is not carried.
-                return ToolResult.scheduled("放置 " + call.string("block")
-                    + " 到 " + call.integer("x", 0) + "," + call.integer("y", 0) + "," + call.integer("z", 0));
+                return ToolResult.scheduled(AgentLang.t("agent.tool.place.start",
+                    call.string("block"),
+                    call.integer("x", 0), call.integer("y", 0), call.integer("z", 0)));
             }
         };
     }
@@ -119,7 +121,7 @@ public final class InteractionTools {
                     args.put("limit", call.integer("limit", 8));
                 }
                 ctx.enqueue("loot_container", args);
-                return ToolResult.scheduled("去翻附近的容器");
+                return ToolResult.scheduled(AgentLang.t("agent.tool.container.start"));
             }
         };
     }
@@ -140,7 +142,7 @@ public final class InteractionTools {
                     args.put("item", call.string("item"));
                 }
                 ctx.enqueue("pickup", args);
-                return ToolResult.scheduled("去捡掉落物");
+                return ToolResult.scheduled(AgentLang.t("agent.tool.pickup.start"));
             }
         };
     }
@@ -178,7 +180,7 @@ public final class InteractionTools {
                 }
                 ctx.enqueue("use_item", args);
 
-                return ToolResult.scheduled("使用 " + item);
+                return ToolResult.scheduled(AgentLang.t("agent.tool.use.start", item));
             }
         };
     }
@@ -213,7 +215,7 @@ public final class InteractionTools {
                     }
                 }
                 ctx.enqueue("build", args);
-                return ToolResult.scheduled("开始建造 " + call.string("structure"));
+                return ToolResult.scheduled(AgentLang.t("agent.tool.build.start", call.string("structure")));
             }
         };
     }
@@ -240,7 +242,7 @@ public final class InteractionTools {
                     args.put("target", call.string("target"));
                 }
                 ctx.enqueue("explore", args);
-                return ToolResult.scheduled("出发探索");
+                return ToolResult.scheduled(AgentLang.t("agent.tool.explore.start"));
             }
         };
     }
@@ -258,12 +260,12 @@ public final class InteractionTools {
             public ToolResult invoke(ToolContext ctx, ToolCall call) {
                 if (!hasRod(ctx)) {
                     // Honest: the action would fail anyway, and the brain needs a real reason.
-                    return ToolResult.missingTool("我没有鱼竿，需要玩家给我一根 fishing_rod");
+                    return ToolResult.missingTool(AgentLang.t("agent.tool.fish.no_rod"));
                 }
                 Map<String, Object> args = new LinkedHashMap<>();
                 args.put("quantity", Math.max(1, call.integer("quantity", 1)));
                 ctx.enqueue("fish", args);
-                return ToolResult.scheduled("去钓鱼");
+                return ToolResult.scheduled(AgentLang.t("agent.tool.fish.start"));
             }
 
             private boolean hasRod(ToolContext ctx) {
@@ -286,7 +288,7 @@ public final class InteractionTools {
                 Map<String, Object> args = new LinkedHashMap<>();
                 args.put("quantity", Math.max(1, call.integer("quantity", 8)));
                 ctx.enqueue("farm", args);
-                return ToolResult.scheduled("去收割作物");
+                return ToolResult.scheduled(AgentLang.t("agent.tool.farm.start"));
             }
         };
     }

@@ -1,5 +1,6 @@
 package com.steve.ai.tool;
 
+import com.steve.ai.i18n.AgentLang;
 import com.steve.ai.protocol.Observation;
 import com.steve.ai.protocol.Permission;
 import com.steve.ai.protocol.RiskLevel;
@@ -49,9 +50,9 @@ public final class WorldTools {
             public ToolResult invoke(ToolContext ctx, ToolCall call) {
                 Observation observation = ctx.observation();
                 if (observation == null) {
-                    return ToolResult.ok("还没有观察到周围环境");
+                    return ToolResult.ok(AgentLang.t("agent.tool.scan.no_obs"));
                 }
-                return ToolResult.ok("已经看过周围了，见上方环境信息");
+                return ToolResult.ok(AgentLang.t("agent.tool.scan.done"));
             }
         };
     }
@@ -75,17 +76,17 @@ public final class WorldTools {
 
                 Observation observation = ctx.observation();
                 if (observation == null) {
-                    return ToolResult.notFound("还没有感知到周围环境");
+                    return ToolResult.notFound(AgentLang.t("agent.tool.scan.no_obs"));
                 }
                 for (Observation.BlockView view : observation.resources()) {
                     if (view.type().toLowerCase().contains(wanted)
                         || wanted.contains(view.type().toLowerCase())) {
                         return ToolResult.ok(
-                            "找到 " + view.type() + "，最近的约 " + Math.round(view.distance()) + " 米",
+                            AgentLang.t("agent.tool.find_block.hit", view.type(), Math.round(view.distance())),
                             Map.of("type", view.type(), "x", view.x(), "y", view.y(), "z", view.z()));
                     }
                 }
-                return ToolResult.notFound("附近没有发现 " + wanted);
+                return ToolResult.notFound(AgentLang.t("agent.tool.find_block.miss", wanted));
             }
         };
     }
@@ -108,15 +109,15 @@ public final class WorldTools {
                 String wanted = call.string("target").toLowerCase();
                 Observation observation = ctx.observation();
                 if (observation == null) {
-                    return ToolResult.notFound("还没有感知到周围环境");
+                    return ToolResult.notFound(AgentLang.t("agent.tool.scan.no_obs"));
                 }
 
                 if (wanted.contains("player") || wanted.contains("玩家")) {
                     Observation.PlayerView player = observation.nearestPlayer();
                     if (player == null) {
-                        return ToolResult.notFound("附近没有玩家");
+                        return ToolResult.notFound(AgentLang.t("agent.tool.find_entity.no_player"));
                     }
-                    return ToolResult.ok(player.name() + " 距离 " + Math.round(player.distance()) + " 米",
+                    return ToolResult.ok(AgentLang.t("agent.tool.find_entity.player", player.name(), Math.round(player.distance())),
                         Map.of("name", player.name(), "distance", player.distance()));
                 }
 
@@ -128,11 +129,11 @@ public final class WorldTools {
                 for (Observation.EntityView view : pool) {
                     if (view.type().toLowerCase().contains(wanted)) {
                         return ToolResult.ok(
-                            "找到 " + view.type() + "，距离 " + Math.round(view.distance()) + " 米",
+                            AgentLang.t("agent.tool.find_entity.hit", view.type(), Math.round(view.distance())),
                             Map.of("type", view.type(), "x", view.x(), "y", view.y(), "z", view.z()));
                     }
                 }
-                return ToolResult.notFound("附近没有发现 " + wanted);
+                return ToolResult.notFound(AgentLang.t("agent.tool.find_entity.miss", wanted));
             }
         };
     }
@@ -149,9 +150,9 @@ public final class WorldTools {
             public ToolResult invoke(ToolContext ctx, ToolCall call) {
                 Observation observation = ctx.observation();
                 if (observation == null || observation.self() == null) {
-                    return ToolResult.ok("不清楚现在几点");
+                    return ToolResult.ok(AgentLang.t("agent.tool.time.unknown"));
                 }
-                return ToolResult.ok(observation.self().isDay() ? "现在是白天" : "现在是夜晚，小心刷怪");
+                return ToolResult.ok(observation.self().isDay() ? AgentLang.t("agent.tool.time.day") : AgentLang.t("agent.tool.time.night"));
             }
         };
     }
@@ -168,9 +169,9 @@ public final class WorldTools {
             public ToolResult invoke(ToolContext ctx, ToolCall call) {
                 Observation observation = ctx.observation();
                 if (observation == null || observation.self() == null) {
-                    return ToolResult.ok("不清楚天气");
+                    return ToolResult.ok(AgentLang.t("agent.tool.weather.unknown"));
                 }
-                return ToolResult.ok(observation.self().isRaining() ? "正在下雨" : "天气不错");
+                return ToolResult.ok(observation.self().isRaining() ? AgentLang.t("agent.tool.weather.rain") : AgentLang.t("agent.tool.weather.clear"));
             }
         };
     }

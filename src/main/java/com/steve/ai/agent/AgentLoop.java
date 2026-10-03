@@ -11,6 +11,7 @@ import com.steve.ai.brain.Reflection;
 import com.steve.ai.config.RuntimeSettings;
 import com.steve.ai.event.AgentEvent;
 import com.steve.ai.event.AgentEventType;
+import com.steve.ai.i18n.AgentLang;
 import com.steve.ai.llm.AgentPromptBuilder;
 import com.steve.ai.protocol.AgentDecision;
 import com.steve.ai.protocol.Observation;
@@ -269,7 +270,7 @@ public final class AgentLoop {
             goal.setPriority(100);
         }
 
-        narrate(tick, "有人打你！我来收拾" + attacker + "。");
+        narrate(tick, AgentLang.t("agent.narrate.defend", attacker));
     }
 
     private void perceive(long tick) {
@@ -368,9 +369,9 @@ public final class AgentLoop {
         }
         int steps = plan.steps().size();
         if (steps <= 1) {
-            return "我先去" + narrative + "，弄好了跟你说。";
+            return AgentLang.t("agent.narrate.plan_one", narrative);
         }
-        return "我先去" + narrative + "（大概 " + steps + " 步），弄好了跟你说。";
+        return AgentLang.t("agent.narrate.plan_many", narrative, steps);
     }
 
     private void dispatchNextStep(Goal goal, long tick) {
@@ -400,7 +401,7 @@ public final class AgentLoop {
             "", "成功", 0.6);
         runtime.goals().prune();
 
-        narrate(tick, "搞定了：" + summary + "。");
+        narrate(tick, AgentLang.t("agent.narrate.done", summary));
 
         clearFocus();
         // 保护任务结束后撤销 PvP 白名单：反击只在当场有效。
@@ -496,22 +497,22 @@ public final class AgentLoop {
 
         Observation.EntityView hostile = obs.nearestHostile();
         if (hostile != null && hostile.distance() <= 16) {
-            return "附近有" + hostile.type() + "，我盯着点。";
+            return AgentLang.t("agent.smalltalk.hostile", hostile.type());
         }
 
         if (!obs.self().isDay()) {
-            return "天黑了，注意点周围。";
+            return AgentLang.t("agent.smalltalk.night");
         }
 
         Observation.PlayerView player = obs.nearestPlayer();
         if (player != null && player.distance() <= 16) {
             if (obs.inventory().isEmpty()) {
-                return "我背包还空着，要不要我去弄点木头？";
+                return AgentLang.t("agent.smalltalk.empty_bag");
             }
             if (!obs.animals().isEmpty()) {
-                return "那边有" + obs.animals().get(0).type() + "，要打点肉吗？";
+                return AgentLang.t("agent.smalltalk.animals", obs.animals().get(0).type());
             }
-            return "我就在旁边，有需要喊我。";
+            return AgentLang.t("agent.smalltalk.nearby");
         }
 
         return null;
@@ -540,7 +541,8 @@ public final class AgentLoop {
     }
 
     private void startThinking(long tick, String instruction) {
-        String system = AgentPromptBuilder.buildSystemPrompt(runtime.persona(), runtime.tools());
+        String system = AgentPromptBuilder.buildSystemPrompt(runtime.persona(), runtime.tools(),
+            AgentLang.current());
         String user = AgentPromptBuilder.buildUserPrompt(
             observation, runtime.goals(), runtime.needs(), runtime.memory(),
             instruction, reflectionNote, tick);
@@ -572,7 +574,7 @@ public final class AgentLoop {
             // 不要装死：模型出错时也要有交代，否则玩家会以为是模组坏了。
             runtime.memory().working().remember(tick, "我这次没想出来（接口或解析问题）");
             if (instruction != null && looksLikeDirectAddress(instruction)) {
-                narrate(tick, "我这边没处理成功，看下日志再试一次吧。");
+                narrate(tick, AgentLang.t("agent.narrate.thinking_failed"));
             }
             return;
         }
@@ -610,7 +612,7 @@ public final class AgentLoop {
             SteveMod.LOGGER.info("[Agent] '{}' 决策未包含任何动作", runtime.steve().getSteveName());
             // 模型说了要做事却没给动作：如实说明，而不是静默卡住。
             if (instruction != null) {
-                narrate(tick, "我没想好具体该怎么做，要不再说清楚一点？");
+                narrate(tick, AgentLang.t("agent.narrate.confused"));
             }
             // 关键：不要把这个目标留成"待办"，否则下一轮 advance() 会发现 stepQueue 是空的，
             // 把它当成"计划已经跑完"并播报"搞定了" —— 玩家就会同时看到"我没想好"和"搞定了"。
@@ -646,7 +648,7 @@ public final class AgentLoop {
         }
 
         // 说了要做什么，就说出来
-        narrate(tick, "好，我来：" + summarizeActions(decision.actions()));
+        narrate(tick, AgentLang.t("agent.narrate.starting", summarizeActions(decision.actions())));
     }
 
     /** 把动作列表压成一句可读的话。 */
@@ -655,41 +657,53 @@ public final class AgentLoop {
         int shown = 0;
         for (ToolCall call : actions) {
             if (shown >= 3) {
-                sb.append(" 等");
+                sb.append(AgentLang.t("agent.act.and_so_on"));
                 break;
             }
             if (shown > 0) {
-                sb.append("，然后");
+                sb.append(", ");
             }
             sb.append(describeTool(call));
             shown++;
         }
-        return sb.length() == 0 ? "处理一下" : sb.toString();
+        return sb.length() == 0 ? AgentLang.t("agent.act.generic") : sb.toString();
     }
 
+    /** 把一次工具调用说成人话，用于播报"我打算做什么"。 */
     private String describeTool(ToolCall call) {
         return switch (call.tool()) {
-            case "break_block" -> "挖 " + call.string("block", "方块");
-            case "place_block" -> "放方块";
-            case "craft_item" -> "合成 " + call.string("item", "物品");
-            case "give_item" -> "把 " + call.string("item", "东西") + "给你";
-            case "attack_entity" -> "打 " + call.string("target", "目标");
-            case "follow_player" -> "跟着你";
-            case "move_to" -> "走过去";
-            case "open_container" -> "翻箱子";
-            case "pickup_item" -> "捡东西";
-            case "build" -> "造 " + call.string("structure", "建筑");
-            case "explore" -> "去转转找找";
-            case "fish" -> "钓鱼";
-            case "farm" -> "收庄稼";
-            case "use_item" -> "用 " + call.string("item", "物品");
+            case "break_block" -> AgentLang.t("agent.act.mine", call.string("block", "block"));
+            case "place_block" -> AgentLang.t("agent.act.place");
+            case "craft_item" -> AgentLang.t("agent.act.craft", call.string("item", "item"));
+            case "give_item" -> AgentLang.t("agent.act.give", call.string("item", "item"));
+            case "attack_entity" -> AgentLang.t("agent.act.attack", call.string("target", "target"));
+            case "follow_player" -> AgentLang.t("agent.act.follow");
+            case "move_to" -> AgentLang.t("agent.act.move");
+            case "open_container" -> AgentLang.t("agent.act.container");
+            case "pickup_item" -> AgentLang.t("agent.act.pickup");
+            case "build" -> AgentLang.t("agent.act.build", call.string("structure", "structure"));
+            case "explore" -> AgentLang.t("agent.act.explore");
+            case "fish" -> AgentLang.t("agent.act.fish");
+            case "farm" -> AgentLang.t("agent.act.farm");
+            case "use_item" -> AgentLang.t("agent.act.use", call.string("item", "item"));
+            // 未知工具直接显示名字，便于排查
             default -> call.tool();
         };
     }
 
-    /** 玩家是不是直接跟 AI 说话（而不是一条与它无关的聊天）。 */
+    /**
+     * 玩家是不是直接跟 AI 说话（而不是一条与它无关的聊天）。
+     *
+     * <p>中英双语判断：中文看"我/你"，英文看常见的人称与祈使句式。</p>
+     */
     private boolean looksLikeDirectAddress(String instruction) {
+        if (instruction == null) {
+            return false;
+        }
+        String lower = instruction.toLowerCase(java.util.Locale.ROOT);
         return instruction.contains("我") || instruction.contains("你")
+            || lower.contains("you") || lower.contains(" me") || lower.startsWith("me")
+            || lower.contains("can you") || lower.contains("could you")
             || instruction.length() <= 12;
     }
 
@@ -716,7 +730,8 @@ public final class AgentLoop {
         if (replanCount > MAX_REPLAN) {
             runtime.goals().fail(goal.id(), outcome.cause());
             // 只有在确认做不成时才这么说；措辞也点明是哪一步卡住了。
-            narrate(tick, "「" + goal.description() + "」我暂时做不了：" + outcome.cause());
+            narrate(tick, AgentLang.t("agent.narrate.cannot_do",
+                goal.description(), outcome.cause()));
             reflectionNote = null;
             return;
         }
@@ -726,7 +741,8 @@ public final class AgentLoop {
             reflectionNote = "上一步失败了：" + outcome.cause()
                 + "\n请换一种可行的方法继续完成「" + goal.description() + "」。";
             // 先补充说明要去准备什么，再继续
-            narrate(tick, "出了点问题（" + outcome.cause() + "），我先" + outcome.nextStep());
+            narrate(tick, AgentLang.t("agent.narrate.recovering",
+                outcome.cause(), outcome.nextStep()));
             return;
         }
 
@@ -740,7 +756,7 @@ public final class AgentLoop {
         }
 
         runtime.goals().fail(goal.id(), outcome.cause());
-        narrate(tick, "「" + goal.description() + "」没做成：" + outcome.cause());
+        narrate(tick, AgentLang.t("agent.narrate.failed", goal.description(), outcome.cause()));
     }
 
     // ------------------------------------------------------------------

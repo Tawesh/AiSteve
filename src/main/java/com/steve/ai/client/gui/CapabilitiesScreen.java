@@ -12,9 +12,7 @@ import java.util.List;
 /**
  * AI 能力开关页。
  *
- * <p>继承 {@link ScrollableSettingsScreen}。这一页原来有 12 个控件、总高度约 335 像素，
- * 用的是硬编码 Y 坐标，因此在窗口较矮（或 GUI 缩放较大）时底部的"保存/返回"必然被裁掉 ——
- * 就是玩家反馈的"底部按钮被遮挡"。现在内容可滚动，底部永远够得着。</p>
+ * <p>文本全部为 {@code translatable}，跟随各客户端自己的语言。</p>
  */
 public class CapabilitiesScreen extends ScrollableSettingsScreen {
 
@@ -26,75 +24,69 @@ public class CapabilitiesScreen extends ScrollableSettingsScreen {
     private final List<CycleButton<Boolean>> capabilityButtons = new ArrayList<>();
 
     public CapabilitiesScreen(Screen parent) {
-        super(Component.literal("AI能力开关"), parent);
+        super(Component.translatable("aisteve.screen.cap.title"), parent);
     }
 
     @Override
-    protected String hintText() {
-        return "控制 AI 可以执行的动作类型（可用滚轮滚动）";
+    protected Component hintText() {
+        return Component.translatable("aisteve.screen.cap.hint");
     }
 
     @Override
     protected void buildContent() {
         capabilityButtons.clear();
 
-        int centerX = this.width / 2;
-        int x = centerX - FIELD_WIDTH / 2;
+        int x = this.width / 2 - FIELD_WIDTH / 2;
         int y = 0;
 
-        y = addToggle(x, y, "采矿 (Mine)", ActionCapabilities.canMine());
-        y = addToggle(x, y, "建造 (Build)", ActionCapabilities.canBuild());
-        y = addToggle(x, y, "合成 (Craft)", ActionCapabilities.canCraft());
-        y = addToggle(x, y, "战斗 (Combat)", ActionCapabilities.canCombat());
-        y = addToggle(x, y, "钓鱼 (Fish)", ActionCapabilities.canFish());
-        y = addToggle(x, y, "种田 (Farm)", ActionCapabilities.canFarm());
-        y = addToggle(x, y, "探索 (Explore)", ActionCapabilities.canExplore());
-        y = addToggle(x, y, "翻箱子 (Loot)", ActionCapabilities.canLoot());
+        y = addToggle(x, y, "aisteve.screen.cap.mine", ActionCapabilities.canMine());
+        y = addToggle(x, y, "aisteve.screen.cap.build", ActionCapabilities.canBuild());
+        y = addToggle(x, y, "aisteve.screen.cap.craft", ActionCapabilities.canCraft());
+        y = addToggle(x, y, "aisteve.screen.cap.combat", ActionCapabilities.canCombat());
+        y = addToggle(x, y, "aisteve.screen.cap.fish", ActionCapabilities.canFish());
+        y = addToggle(x, y, "aisteve.screen.cap.farm", ActionCapabilities.canFarm());
+        y = addToggle(x, y, "aisteve.screen.cap.explore", ActionCapabilities.canExplore());
+        y = addToggle(x, y, "aisteve.screen.cap.loot", ActionCapabilities.canLoot());
 
         y += 8;
-
-        // 批量开关
         int halfWidth = (FIELD_WIDTH - 10) / 2;
 
-        Button enableAll = Button.builder(
-                Component.literal("全部启用"),
+        addContent(Button.builder(
+                Component.translatable("aisteve.screen.cap.enable_all"),
                 button -> setAll(true))
             .bounds(x, y, halfWidth, ROW_HEIGHT)
-            .build();
-        addContent(enableAll, y);
+            .build(), y);
 
-        Button disableAll = Button.builder(
-                Component.literal("全部禁用"),
+        addContent(Button.builder(
+                Component.translatable("aisteve.screen.cap.disable_all"),
                 button -> setAll(false))
             .bounds(x + halfWidth + 10, y, halfWidth, ROW_HEIGHT)
-            .build();
-        addContent(disableAll, y);
+            .build(), y);
         y += ROW_HEIGHT + 16;
 
-        // 保存 / 返回
-        Button saveButton = Button.builder(
-                Component.literal("保存"),
+        addContent(Button.builder(
+                Component.translatable("aisteve.screen.cap.save"),
                 button -> saveAndClose())
             .bounds(x, y, halfWidth, ROW_HEIGHT)
-            .build();
-        addContent(saveButton, y);
+            .build(), y);
 
-        Button backButton = Button.builder(
-                Component.literal("返回"),
+        addContent(Button.builder(
+                Component.translatable("aisteve.screen.cap.back"),
                 button -> goBack())
             .bounds(x + halfWidth + 10, y, halfWidth, ROW_HEIGHT)
-            .build();
-        addContent(backButton, y);
+            .build(), y);
 
         setContentHeight(y + ROW_HEIGHT);
     }
 
-    private int addToggle(int x, int y, String label, boolean initial) {
+    /** {@code labelKey} 是语言键，渲染时才会按客户端语言解析。 */
+    private int addToggle(int x, int y, String labelKey, boolean initial) {
         CycleButton<Boolean> button = CycleButton.booleanBuilder(
-                Component.literal("✓ 开启"), Component.literal("✗ 关闭"))
+                Component.translatable("aisteve.screen.cap.on"),
+                Component.translatable("aisteve.screen.cap.off"))
             .withInitialValue(initial)
             .create(x, y, FIELD_WIDTH, ROW_HEIGHT,
-                Component.literal(label),
+                Component.translatable(labelKey),
                 (cb, value) -> {});
         addContent(button, y);
         capabilityButtons.add(button);

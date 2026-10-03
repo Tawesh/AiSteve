@@ -1,5 +1,6 @@
 package com.steve.ai.tool;
 
+import com.steve.ai.i18n.AgentLang;
 import com.steve.ai.protocol.Permission;
 import com.steve.ai.protocol.RiskLevel;
 import com.steve.ai.protocol.ToolCall;
@@ -48,7 +49,7 @@ public final class SocialTools {
                 Map<String, Object> args = new LinkedHashMap<>();
                 args.put("message", message);
                 ctx.enqueue("say", args);
-                return ToolResult.scheduled("说：" + message);
+                return ToolResult.scheduled(AgentLang.t("agent.tool.chat.said", message));
             }
         };
     }
@@ -72,7 +73,7 @@ public final class SocialTools {
                 Map<String, Object> args = new LinkedHashMap<>();
                 args.put("message", message);
                 ctx.enqueue("say", args);
-                return ToolResult.scheduled("向玩家求助：" + message);
+                return ToolResult.scheduled(AgentLang.t("agent.tool.chat.ask", message));
             }
         };
     }
@@ -99,7 +100,7 @@ public final class SocialTools {
                 if (ctx.memory() != null) {
                     ctx.memory().social().remember(player, fact);
                 }
-                return ToolResult.ok("记住了：" + player + " " + fact);
+                return ToolResult.ok(AgentLang.t("agent.tool.remember.done", player, fact));
             }
         };
     }

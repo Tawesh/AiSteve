@@ -1,6 +1,7 @@
 package com.steve.ai.config;
 
 import com.steve.ai.SteveMod;
+import com.steve.ai.i18n.ConversationLanguage;
 
 /**
  * 行为类设置的运行时快照。
@@ -24,6 +25,7 @@ public final class RuntimeSettings {
     private static volatile boolean chatResponses = true;
     private static volatile boolean defendAgainstPlayers = true;
     private static volatile boolean agentEnabled = true;
+    private static volatile ConversationLanguage conversationLanguage = ConversationLanguage.ZH_CN;
 
     private RuntimeSettings() {
     }
@@ -37,6 +39,9 @@ public final class RuntimeSettings {
         chatResponses = read(() -> SteveConfig.ENABLE_CHAT_RESPONSES.get(), true);
         defendAgainstPlayers = read(() -> SteveConfig.DEFEND_AGAINST_PLAYERS.get(), true);
         agentEnabled = read(() -> SteveConfig.ENABLE_AGENT.get(), true);
+        conversationLanguage = ConversationLanguage.parse(
+            read(() -> SteveConfig.AGENT_LANGUAGE.get(), "zh_cn"),
+            ConversationLanguage.ZH_CN);
 
         SteveMod.LOGGER.debug(
             "[AiSteve] 运行时设置已刷新: 活动半径={}, 自主={}, 主动说话={}, 进度播报={}",
@@ -85,6 +90,15 @@ public final class RuntimeSettings {
      */
     public static boolean agentEnabled() {
         return agentEnabled;
+    }
+
+    /**
+     * AI 的默认对话语言（没人说过话时用）。
+     *
+     * <p>注意这不影响模组界面：界面由 Minecraft 自己的翻译系统按**每个客户端**的语言渲染。</p>
+     */
+    public static ConversationLanguage conversationLanguage() {
+        return conversationLanguage;
     }
 
     /**

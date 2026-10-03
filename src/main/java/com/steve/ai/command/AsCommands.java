@@ -7,6 +7,8 @@ import com.mojang.brigadier.context.CommandContext;
 import com.steve.ai.SteveMod;
 import com.steve.ai.entity.SteveEntity;
 import com.steve.ai.entity.SteveManager;
+import com.steve.ai.i18n.AgentLang;
+import com.steve.ai.i18n.ConversationLanguage;
 import com.steve.ai.util.ActionUtils;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -33,6 +35,7 @@ import net.minecraft.world.phys.Vec3;
  * /as say &lt;指令&gt;               用自然语言给 AI 下达任务（主要用法）
  * /as give [&lt;物品&gt;] [&lt;数量&gt;]    把手上的物品（或指定物品）交给 AI
  * /as take                     让 AI 把身上的东西都交给你
+ * /as lang [zh_cn|en_us]       查看/设置 AI 说话的语言
  * /as &lt;指令&gt;                   等价于 /as say &lt;指令&gt;（便捷写法）
  * </pre>
  */
@@ -64,6 +67,10 @@ public class AsCommands {
                 .executes(AsCommands::callAi))
             .then(Commands.literal("config")
                 .executes(AsCommands::openConfig))
+            .then(Commands.literal("lang")
+                .executes(AsCommands::showLang)
+                .then(Commands.argument("language", StringArgumentType.word())
+                    .executes(AsCommands::setLang)))
             .then(Commands.literal("say")
                 .then(Commands.argument("instruction", StringArgumentType.greedyString())
                     .executes(AsCommands::sayToAi)))
@@ -93,7 +100,7 @@ public class AsCommands {
         try {
             level = source.getLevel();
         } catch (Exception e) {
-            source.sendFailure(Component.literal("必须在服务器端执行该命令"));
+            source.sendFailure(Component.translatable("aisteve.cmd.server_only"));
             return 0;
         }
 
@@ -109,24 +116,18 @@ public class AsCommands {
 
         if (manager.hasSteve()) {
             SteveEntity existing = manager.getSingleSteve();
-            source.sendFailure(Component.literal(
-                "§c已经存在一个 AI 玩家了：§e" + existing.getSteveName()
-                    + "§c。请先用 §b/" + ROOT + " remove§c 移除它。"));
+            source.sendFailure(Component.translatable("aisteve.cmd.exists", existing.getSteveName()));
             return 0;
         }
 
         Vec3 pos = spawnPosition(source);
         SteveEntity steve = manager.spawnSteve(level, pos, name);
         if (steve == null) {
-            source.sendFailure(Component.literal("§c创建 AI 玩家失败，请查看日志。"));
+            source.sendFailure(Component.translatable("aisteve.cmd.create_failed"));
             return 0;
         }
 
-        source.sendSuccess(() -> Component.literal(
-            "§a已创建 AI 玩家 §e" + name + "§a。\n"
-                + "§7· 下达任务：§b/" + ROOT + " say <你想要的>\n"
-                + "§7· 给它物品：§b/" + ROOT + " give§7（拿在手上）\n"
-                + "§7· 收回物品：§b/" + ROOT + " take"), false);
+        source.sendSuccess(() -> Component.translatable("aisteve.cmd.created", name), false);
         return 1;
     }
 
@@ -153,11 +154,10 @@ public class AsCommands {
         if (steve == null) {
             // Nothing registered - but leftovers from older builds may still be out there.
             if (server != null && manager.purgeAll(server.getAllLevels()) > 0) {
-                source.sendSuccess(() -> Component.literal(
-                    "§a已清理世界上残留的 AI 实体。"), true);
+                source.sendSuccess(() -> Component.translatable("aisteve.cmd.cleaned_leftovers"), true);
                 return 1;
             }
-            source.sendFailure(Component.literal("§c当前没有 AI 玩家。"));
+            source.sendFailure(Component.translatable("aisteve.cmd.no_ai"));
             return 0;
         }
 
@@ -173,9 +173,9 @@ public class AsCommands {
         }
 
         final int total = removed;
-        source.sendSuccess(() -> Component.literal(
-            "§a已移除 AI 玩家 §e" + name + "§a"
-                + (total > 1 ? "（同时清理了 " + (total - 1) + " 个残留实体）" : "")), true);
+        source.sendSuccess(() -> total > 1
+            ? Component.translatable("aisteve.cmd.removed_extra", name, total - 1)
+            : Component.translatable("aisteve.cmd.removed", name), true);
         return 1;
     }
 
@@ -190,17 +190,15 @@ public class AsCommands {
 
         MinecraftServer server = source.getServer();
         if (server == null) {
-            source.sendFailure(Component.literal("§c该命令只能在服务器端执行。"));
+            source.sendFailure(Component.translatable("aisteve.cmd.server_only"));
             return 0;
         }
 
         int removed = SteveMod.getSteveManager().purgeAll(server.getAllLevels());
         if (removed > 0) {
-            source.sendSuccess(() -> Component.literal(
-                "§a已清理 " + removed + " 个 AI 实体（含旧版本残留）。现在可以重新 §b/"
-                    + ROOT + " create§a。"), true);
+            source.sendSuccess(() -> Component.translatable("aisteve.cmd.cleanup_done", removed), true);
         } else {
-            source.sendSuccess(() -> Component.literal("§7没有找到需要清理的 AI 实体。"), false);
+            source.sendSuccess(() -> Component.translatable("aisteve.cmd.cleanup_none"), false);
         }
         return 1;
     }
@@ -210,19 +208,21 @@ public class AsCommands {
         SteveEntity steve = SteveMod.getSteveManager().getSingleSteve();
 
         if (steve == null) {
-            source.sendSuccess(() -> Component.literal(
-                "§7当前没有 AI 玩家。用 §b/" + ROOT + " create <名字>§7 创建一个。"), false);
+            source.sendSuccess(() -> Component.translatable("aisteve.cmd.info_none"), false);
             return 1;
         }
 
         var pos = steve.blockPosition();
         String goal = steve.getMemory().getCurrentGoal();
-        source.sendSuccess(() -> Component.literal(
-            "§aAI 玩家：§e" + steve.getSteveName() + "\n"
-                + "§7位置：§f" + pos.getX() + ", " + pos.getY() + ", " + pos.getZ() + "\n"
-                + "§7生命：§f" + (int) steve.getHealth() + "/" + (int) steve.getMaxHealth() + "\n"
-                + "§7背包：§f" + steve.getInventory().describe() + "\n"
-                + "§7当前目标：§f" + (goal == null || goal.isEmpty() ? "空闲" : goal)), false);
+        final String goalText = goal == null || goal.isEmpty()
+            ? Component.translatable("aisteve.cmd.idle").getString()
+            : goal;
+        source.sendSuccess(() -> Component.translatable("aisteve.cmd.info",
+            steve.getSteveName(),
+            pos.getX(), pos.getY(), pos.getZ(),
+            (int) steve.getHealth(), (int) steve.getMaxHealth(),
+            steve.getInventory().describe(),
+            goalText), false);
         return 1;
     }
 
@@ -236,15 +236,15 @@ public class AsCommands {
         CommandSourceStack source = context.getSource();
         SteveEntity steve = SteveMod.getSteveManager().getSingleSteve();
         if (steve == null) {
-            source.sendFailure(Component.literal("§c当前没有 AI 玩家。"));
+            source.sendFailure(Component.translatable("aisteve.cmd.no_ai"));
             return 0;
         }
         var runtime = steve.getAgentRuntime();
         if (runtime == null) {
-            source.sendFailure(Component.literal("§c该 AI 没有启用分层 Agent 运行时。"));
+            source.sendFailure(Component.translatable("aisteve.cmd.no_agent_runtime"));
             return 0;
         }
-        source.sendSuccess(() -> Component.literal("§a【Agent 状态】\n§f" + runtime.describe()), false);
+        source.sendSuccess(() -> Component.translatable("aisteve.cmd.agent_state", runtime.describe()), false);
         return 1;
     }
 
@@ -253,16 +253,15 @@ public class AsCommands {
         CommandSourceStack source = context.getSource();
         SteveEntity steve = SteveMod.getSteveManager().getSingleSteve();
         if (steve == null) {
-            source.sendFailure(Component.literal("§c当前没有 AI 玩家。"));
+            source.sendFailure(Component.translatable("aisteve.cmd.no_ai"));
             return 0;
         }
         var runtime = steve.getAgentRuntime();
         if (runtime == null) {
-            source.sendFailure(Component.literal("§c该 AI 没有启用分层 Agent 运行时。"));
+            source.sendFailure(Component.translatable("aisteve.cmd.no_agent_runtime"));
             return 0;
         }
-        source.sendSuccess(() -> Component.literal(
-            "§a【目标栈】\n§f" + runtime.goals().describe()), false);
+        source.sendSuccess(() -> Component.translatable("aisteve.cmd.goals", runtime.goals().describe()), false);
         return 1;
     }
 
@@ -271,12 +270,12 @@ public class AsCommands {
         CommandSourceStack source = context.getSource();
         SteveEntity steve = SteveMod.getSteveManager().getSingleSteve();
         if (steve == null) {
-            source.sendFailure(Component.literal("§c当前没有 AI 玩家。"));
+            source.sendFailure(Component.translatable("aisteve.cmd.no_ai"));
             return 0;
         }
         var runtime = steve.getAgentRuntime();
         if (runtime == null) {
-            source.sendFailure(Component.literal("§c该 AI 没有启用分层 Agent 运行时。"));
+            source.sendFailure(Component.translatable("aisteve.cmd.no_agent_runtime"));
             return 0;
         }
 
@@ -284,11 +283,11 @@ public class AsCommands {
         String text = runtime.memory().social().toPromptText()
             + runtime.memory().episodic().toPromptText(tick, 5);
         if (text.isBlank()) {
-            text = "（还什么都没记住）";
+            text = Component.translatable("aisteve.cmd.memory_empty").getString();
         }
         final String body = text;
-        source.sendSuccess(() -> Component.literal(
-            "§a【记忆】§7" + runtime.memory().describe() + "\n§f" + body), false);
+        source.sendSuccess(() -> Component.translatable("aisteve.cmd.memory",
+            runtime.memory().describe(), body), false);
         return 1;
     }
 
@@ -296,13 +295,12 @@ public class AsCommands {
         CommandSourceStack source = context.getSource();
         SteveEntity steve = SteveMod.getSteveManager().getSingleSteve();
         if (steve == null) {
-            source.sendFailure(Component.literal("§c当前没有 AI 玩家。"));
+            source.sendFailure(Component.translatable("aisteve.cmd.no_ai"));
             return 0;
         }
         steve.getActionExecutor().stopCurrentAction();
         steve.getMemory().clearTaskQueue();
-        source.sendSuccess(() -> Component.literal(
-            "§a已让 §e" + steve.getSteveName() + "§a 停下。"), true);
+        source.sendSuccess(() -> Component.translatable("aisteve.cmd.stopped", steve.getSteveName()), true);
         return 1;
     }
 
@@ -316,7 +314,7 @@ public class AsCommands {
         CommandSourceStack source = context.getSource();
         SteveEntity steve = SteveMod.getSteveManager().getSingleSteve();
         if (steve == null) {
-            source.sendFailure(Component.literal("§c当前没有 AI 玩家。"));
+            source.sendFailure(Component.translatable("aisteve.cmd.no_ai"));
             return 0;
         }
 
@@ -324,14 +322,13 @@ public class AsCommands {
         try {
             player = source.getPlayerOrException();
         } catch (Exception e) {
-            source.sendFailure(Component.literal("§c该用法只能由玩家执行。"));
+            source.sendFailure(Component.translatable("aisteve.cmd.player_only"));
             return 0;
         }
 
         steve.getNavigation().stop();
         steve.teleportTo(player.getX(), player.getY(), player.getZ());
-        source.sendSuccess(() -> Component.literal(
-            "§a已把 §e" + steve.getSteveName() + "§a 叫到身边。"), false);
+        source.sendSuccess(() -> Component.translatable("aisteve.cmd.called", steve.getSteveName()), false);
         return 1;
     }
 
@@ -341,8 +338,42 @@ public class AsCommands {
      */
     private static int openConfig(CommandContext<CommandSourceStack> context) {
         CommandSourceStack source = context.getSource();
-        source.sendSuccess(() -> Component.literal(
-            "§a请按 §eK§a 键打开配置界面，或在客户端使用 §b/as config§a。"), false);
+        source.sendSuccess(() -> Component.translatable("aisteve.cmd.open_config"), false);
+        return 1;
+    }
+
+    // ------------------------------------------------------------------
+    // lang  (which language the AI speaks)
+    // ------------------------------------------------------------------
+
+    /** Reports the current AI language. */
+    private static int showLang(CommandContext<CommandSourceStack> context) {
+        CommandSourceStack source = context.getSource();
+        source.sendSuccess(() -> Component.translatable("aisteve.cmd.lang_set",
+            AgentLang.current().displayName()), false);
+        return 1;
+    }
+
+    /**
+     * Sets the language the AI speaks.
+     *
+     * <p>Only affects the AI's own speech. Note that a player talking to it in the other language
+     * will still switch it back - that mirroring is deliberate, and this command just chooses the
+     * starting point.</p>
+     */
+    private static int setLang(CommandContext<CommandSourceStack> context) {
+        CommandSourceStack source = context.getSource();
+        String raw = StringArgumentType.getString(context, "language");
+
+        ConversationLanguage parsed = ConversationLanguage.parse(raw, null);
+        if (parsed == null) {
+            source.sendFailure(Component.translatable("aisteve.cmd.lang_usage"));
+            return 0;
+        }
+
+        AgentLang.setCurrent(parsed);
+        source.sendSuccess(() -> Component.translatable("aisteve.cmd.lang_set",
+            parsed.displayName()), false);
         return 1;
     }
 
@@ -356,25 +387,20 @@ public class AsCommands {
 
         SteveEntity steve = SteveMod.getSteveManager().getSingleSteve();
         if (steve == null) {
-            source.sendFailure(Component.literal(
-                "§c还没有 AI 玩家。先用 §b/" + ROOT + " create <名字>§c 创建一个。"));
+            source.sendFailure(Component.translatable("aisteve.cmd.no_ai_create"));
             return 0;
         }
 
         if (instruction == null || instruction.isBlank()) {
-            source.sendFailure(Component.literal(
-                "§c要说什么？例如：§b/" + ROOT + " 帮我弄一个羊排"));
+            source.sendFailure(Component.translatable("aisteve.cmd.ask_what"));
             return 0;
         }
 
-        // The planner is non-blocking, but it is still started off-thread so the
-        // server tick is never held up by prompt construction.
+        // hearPlayer 只做入队，不会阻塞服务器线程，因此这里不需要再包一层线程。
         final String text = instruction;
         final String speaker = source.getEntity() != null
             ? source.getEntity().getName().getString()
-            : "玩家";
-        // hearPlayer 只会把指令放进线程安全的队列，由 AgentLoop 在服务器线程上处理，
-        // 因此这里不需要再包一层线程。
+            : "Player";
         steve.hearPlayer(speaker, text);
 
         return 1;
@@ -398,24 +424,24 @@ public class AsCommands {
         try {
             player = source.getPlayerOrException();
         } catch (Exception e) {
-            source.sendFailure(Component.literal("§c该用法只能由玩家执行。"));
+            source.sendFailure(Component.translatable("aisteve.cmd.player_only"));
             return 0;
         }
 
         ItemStack held = player.getMainHandItem();
         if (held.isEmpty()) {
-            source.sendFailure(Component.literal("§c你手上没有物品。"));
+            source.sendFailure(Component.translatable("aisteve.cmd.held_empty"));
             return 0;
         }
 
         int moved = transfer(player, steve, held.copy());
         if (moved <= 0) {
-            source.sendFailure(Component.literal("§cAI 的背包已满。"));
+            source.sendFailure(Component.translatable("aisteve.cmd.bag_full"));
             return 0;
         }
 
-        source.sendSuccess(() -> Component.literal(
-            "§a已交给 §e" + steve.getSteveName() + "§a：" + moved + "x " + held.getItem()), false);
+        source.sendSuccess(() -> Component.translatable("aisteve.cmd.gave_held",
+            steve.getSteveName(), moved, held.getItem().toString()), false);
         return 1;
     }
 
@@ -424,28 +450,27 @@ public class AsCommands {
         CommandSourceStack source = context.getSource();
         SteveEntity steve = SteveMod.getSteveManager().getSingleSteve();
         if (steve == null) {
-            source.sendFailure(Component.literal(
-                "§c还没有 AI 玩家。先用 §b/" + ROOT + " create <名字>§c 创建一个。"));
+            source.sendFailure(Component.translatable("aisteve.cmd.no_ai_create"));
             return 0;
         }
 
         String rawName = StringArgumentType.getString(context, "item");
         Item item = ActionUtils.parseItem(rawName);
         if (item == Items.AIR) {
-            source.sendFailure(Component.literal("§c未知物品：" + rawName));
+            source.sendFailure(Component.translatable("aisteve.cmd.unknown_item", rawName));
             return 0;
         }
 
         ItemStack stack = new ItemStack(item, count);
         int leftover = steve.getInventory().addItem(stack);
         if (leftover >= count) {
-            source.sendFailure(Component.literal("§cAI 的背包已满，无法给予。"));
+            source.sendFailure(Component.translatable("aisteve.cmd.bag_full_cannot_give"));
             return 0;
         }
 
         int given = count - leftover;
-        source.sendSuccess(() -> Component.literal(
-            "§a已交给 §e" + steve.getSteveName() + "§a：" + given + "x " + item), false);
+        source.sendSuccess(() -> Component.translatable("aisteve.cmd.gave_item",
+            steve.getSteveName(), given, item.toString()), false);
         return 1;
     }
 
@@ -454,7 +479,7 @@ public class AsCommands {
         CommandSourceStack source = context.getSource();
         SteveEntity steve = SteveMod.getSteveManager().getSingleSteve();
         if (steve == null) {
-            source.sendFailure(Component.literal("§c还没有 AI 玩家。"));
+            source.sendFailure(Component.translatable("aisteve.cmd.no_ai_create"));
             return 0;
         }
 
@@ -462,12 +487,13 @@ public class AsCommands {
         try {
             player = source.getPlayerOrException();
         } catch (Exception e) {
-            source.sendFailure(Component.literal("§c该用法只能由玩家执行。"));
+            source.sendFailure(Component.translatable("aisteve.cmd.player_only"));
             return 0;
         }
 
         if (steve.getInventory().isEmpty()) {
-            source.sendFailure(Component.literal("§e" + steve.getSteveName() + "§c 身上没有东西。"));
+            source.sendFailure(Component.translatable("aisteve.cmd.nothing_to_take",
+                steve.getSteveName()));
             return 0;
         }
 
@@ -482,8 +508,8 @@ public class AsCommands {
         }
 
         final int total = moved;
-        source.sendSuccess(() -> Component.literal(
-            "§a已从 §e" + steve.getSteveName() + "§a 取回 " + total + " 个物品。"), false);
+        source.sendSuccess(() -> Component.translatable("aisteve.cmd.took",
+            steve.getSteveName(), total), false);
         return 1;
     }
 

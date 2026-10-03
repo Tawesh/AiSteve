@@ -3,6 +3,8 @@ package com.steve.ai.llm;
 import com.steve.ai.brain.GoalManager;
 import com.steve.ai.brain.Needs;
 import com.steve.ai.brain.Persona;
+import com.steve.ai.i18n.AgentLang;
+import com.steve.ai.i18n.ConversationLanguage;
 import com.steve.ai.memory.MemoryManager;
 import com.steve.ai.protocol.Observation;
 import com.steve.ai.tool.ToolRegistry;
@@ -34,12 +36,20 @@ public final class AgentPromptBuilder {
     /**
      * The system prompt: who the AI is, what it may never do, and the exact output contract.
      */
-    public static String buildSystemPrompt(Persona persona, ToolRegistry tools) {
+    public static String buildSystemPrompt(Persona persona, ToolRegistry tools,
+                                          ConversationLanguage language) {
         StringBuilder sb = new StringBuilder();
 
         sb.append("你是《我的世界》里一个**真实的玩家**，不是脚本机器人，也不是助手程序。\n");
         sb.append("你的名字是 ").append(persona.name()).append("，")
           .append("你和真人玩家一起在这个世界里生存、探索、战斗、建造。\n\n");
+
+        // ---- Output language -----------------------------------------------------------
+        // 放在最前面是有意的：模型对"开头就给出的输出约束"遵守得最好。
+        // 提示词本身用中文写（它是内部指令，玩家看不到），但产出的自然语言必须是指定语言。
+        ConversationLanguage lang = language == null ? ConversationLanguage.ZH_CN : language;
+        sb.append(AgentLang.t(lang, "agent.prompt.language",
+            lang.promptName(), lang.promptName(), lang.promptName()));
 
         // ---- Hard constraints: the "behaves like a player" contract --------------------
         sb.append("================= 不可违背的规则 =================\n");
@@ -83,42 +93,8 @@ public final class AgentPromptBuilder {
         sb.append("================= 可用工具 =================\n");
         sb.append(tools.describeForPrompt()).append('\n');
 
-        // ---- Examples ------------------------------------------------------------------
-        sb.append("================= 示例 =================\n");
-        sb.append("玩家：\"你好呀\"\n");
-        sb.append("{\"intent\":\"chat\",\"reply\":\"你好！我是").append(persona.name())
-          .append("，需要我帮什么忙吗？\"}\n\n");
-
-        sb.append("玩家：\"跟着我\"\n");
-        sb.append("{\"intent\":\"task\",\"thought\":\"玩家要我跟着他\",");
-        sb.append("\"goal_update\":{\"description\":\"跟随玩家\",\"type\":\"social\",\"priority\":70},");
-        sb.append("\"actions\":[");
-        sb.append("{\"tool\":\"follow_player\",\"arguments\":{\"player\":\"nearest\"},\"reason\":\"跟随玩家\"},");
-        sb.append("{\"tool\":\"send_chat\",\"arguments\":{\"message\":\"好，我跟着你。\"},\"reason\":\"回应一下\"}");
-        sb.append("]}\n\n");
-
-        sb.append("玩家：\"去挖点铁\"\n");
-        sb.append("{\"intent\":\"task\",\"thought\":\"去挖铁矿\",");
-        sb.append("\"goal_update\":{\"description\":\"挖铁矿石\",\"type\":\"resource\",\"priority\":70},");
-        sb.append("\"actions\":[");
-        sb.append("{\"tool\":\"break_block\",\"arguments\":{\"block\":\"iron_ore\",\"quantity\":16},\"reason\":\"挖铁\"}");
-        sb.append("]}\n\n");
-
-        sb.append("玩家：\"能给我一把木镐吗\"（背包里没有木头）\n");
-        sb.append("{\"intent\":\"task\",\"thought\":\"需要先砍树再合成木镐\",");
-        sb.append("\"actions\":[");
-        sb.append("{\"tool\":\"break_block\",\"arguments\":{\"block\":\"oak_log\",\"quantity\":1},\"reason\":\"先拿木头\"},");
-        sb.append("{\"tool\":\"craft_item\",\"arguments\":{\"item\":\"oak_planks\",\"quantity\":1},\"reason\":\"合成木板\"},");
-        sb.append("{\"tool\":\"craft_item\",\"arguments\":{\"item\":\"stick\",\"quantity\":1},\"reason\":\"合成木棍\"},");
-        sb.append("{\"tool\":\"craft_item\",\"arguments\":{\"item\":\"wooden_pickaxe\",\"quantity\":1},\"reason\":\"合成木镐\"},");
-        sb.append("{\"tool\":\"give_item\",\"arguments\":{\"item\":\"wooden_pickaxe\",\"count\":1},\"reason\":\"交给玩家\"}");
-        sb.append("]}\n\n");
-
-        sb.append("玩家：\"给我一块钻石\"（附近没有钻石，背包也没有）\n");
-        sb.append("{\"intent\":\"task\",\"thought\":\"现在拿不到钻石，先如实说明\",");
-        sb.append("\"actions\":[");
-        sb.append("{\"tool\":\"ask_player\",\"arguments\":{\"message\":\"钻石我这边暂时弄不到，你有的话能给我一块吗？\"},\"reason\":\"如实求助\"}");
-        sb.append("]}\n");
+        // ---- Examples (localised: they model the expected output language) --------------
+        sb.append(AgentLang.t("agent.prompt.examples", persona.name()));
 
         return sb.toString();
     }

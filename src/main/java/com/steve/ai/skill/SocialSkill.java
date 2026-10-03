@@ -1,5 +1,6 @@
 package com.steve.ai.skill;
 
+import com.steve.ai.i18n.AgentLang;
 import com.steve.ai.protocol.Observation;
 import com.steve.ai.protocol.ToolCall;
 
@@ -56,8 +57,8 @@ public final class SocialSkill implements Skill {
             Map<String, Object> args = new LinkedHashMap<>();
             args.put("item", item);
             args.put("count", SkillSupport.readCount(request.description(), 1));
-            return SkillPlan.of("把 " + item + " 交给 " + safe(player),
-                new ToolCall("give_item", args, "交东西给玩家"));
+            return SkillPlan.of(AgentLang.t("agent.skill.social.give", item, safe(player)),
+                new ToolCall("give_item", args, "give"));
         }
 
         // --- Follow / come here / come back --------------------------------------
@@ -66,16 +67,17 @@ public final class SocialSkill implements Skill {
             "follow", "come here", "come back")) {
             Map<String, Object> args = new LinkedHashMap<>();
             args.put("player", player == null ? "nearest" : player);
-            return SkillPlan.of("跟着 " + safe(player),
-                new ToolCall("follow_player", args, "跟随玩家"),
-                new ToolCall("send_chat", Map.of("message", "好，我过来。"), "回应玩家"));
+            return SkillPlan.of(AgentLang.t("agent.skill.social.follow", safe(player)),
+                new ToolCall("follow_player", args, "follow"),
+                new ToolCall("send_chat",
+                    Map.of("message", AgentLang.t("agent.skill.social.follow_chat")), "reply"));
         }
 
         // --- Generic social goal: just be present and answer ----------------------
         Map<String, Object> args = new LinkedHashMap<>();
         args.put("player", player == null ? "nearest" : player);
-        return SkillPlan.of("待在 " + safe(player) + " 身边",
-            new ToolCall("follow_player", args, "保持陪伴"));
+        return SkillPlan.of(AgentLang.t("agent.skill.social.accompany", safe(player)),
+            new ToolCall("follow_player", args, "accompany"));
     }
 
     /**
@@ -104,6 +106,6 @@ public final class SocialSkill implements Skill {
     }
 
     private static String safe(String player) {
-        return player == null ? "玩家" : player;
+        return player == null ? AgentLang.t("agent.skill.player") : player;
     }
 }

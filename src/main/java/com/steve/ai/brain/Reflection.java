@@ -1,5 +1,6 @@
 package com.steve.ai.brain;
 
+import com.steve.ai.i18n.AgentLang;
 import com.steve.ai.protocol.Observation;
 import com.steve.ai.protocol.ToolCall;
 import com.steve.ai.protocol.ToolResult;
@@ -55,43 +56,44 @@ public final class Reflection {
 
         return switch (status) {
             case ToolResult.MISSING_TOOL -> Outcome.of(
-                "缺少必要物品/工具：" + message,
-                "先设法获得缺失的东西，再回来继续「" + goal.description() + "」",
-                false, GoalType.RESOURCE, "准备材料：" + extractMissing(message, target));
+                AgentLang.t("agent.reflect.missing_tool", message),
+                AgentLang.t("agent.reflect.missing_next", goal.description()),
+                false, GoalType.RESOURCE,
+                AgentLang.t("agent.reflect.prepare", extractMissing(message, target)));
 
             case ToolResult.NOT_FOUND -> Outcome.of(
-                "附近找不到目标：" + message,
-                "换个地方找，或者用工具搜索更大范围",
-                false, GoalType.EXPLORE, "去别处寻找 " + target);
+                AgentLang.t("agent.reflect.not_found", message),
+                AgentLang.t("agent.reflect.search_elsewhere"),
+                false, GoalType.EXPLORE, AgentLang.t("agent.reflect.go_find", target));
 
             case ToolResult.DENIED -> new Outcome(
-                "这个能力被权限限制，不能执行：" + message,
-                "换一种符合游戏规则的正常做法",
+                AgentLang.t("agent.reflect.denied", message),
+                AgentLang.t("agent.reflect.use_legal"),
                 true, null, null, 0.7);
 
             case ToolResult.BAD_ARGUMENTS -> new Outcome(
-                "参数不对：" + message,
-                "重新规划，给出合法参数",
+                AgentLang.t("agent.reflect.bad_args", message),
+                AgentLang.t("agent.reflect.replan_args"),
                 true, null, null, 0.4);
 
             case ToolResult.UNSUPPORTED -> new Outcome(
-                "这个能力目前实现不了：" + message,
-                "改用别的手段，或者告诉玩家做不到",
+                AgentLang.t("agent.reflect.unsupported", message),
+                AgentLang.t("agent.reflect.alternative"),
                 true, null, null, 0.5);
 
             case ToolResult.UNKNOWN_TOOL -> new Outcome(
-                "我调用了一个不存在的工具：" + call.tool(),
-                "只能使用工具清单里列出的能力",
+                AgentLang.t("agent.reflect.unknown_tool", call.tool()),
+                AgentLang.t("agent.reflect.only_listed"),
                 true, null, null, 0.3);
 
             case ToolResult.ERROR -> new Outcome(
-                "执行出错：" + message,
-                "换一种可行的方法继续"+ (observation != null ? "" : ""),
+                AgentLang.t("agent.reflect.error", message),
+                AgentLang.t("agent.reflect.try_other"),
                 true, null, null, 0.6);
 
             default -> new Outcome(
-                "步骤没有成功：" + message,
-                "根据当前状态换一种可行的方法",
+                AgentLang.t("agent.reflect.step_failed", message),
+                AgentLang.t("agent.reflect.retry_other"),
                 true, null, null, 0.5);
         };
     }

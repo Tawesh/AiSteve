@@ -1,6 +1,7 @@
 package com.steve.ai.tool;
 
 import com.steve.ai.SteveMod;
+import com.steve.ai.i18n.AgentLang;
 import com.steve.ai.protocol.RiskLevel;
 import com.steve.ai.protocol.ToolCall;
 import com.steve.ai.protocol.ToolResult;
@@ -35,7 +36,7 @@ public final class ToolDispatcher {
 
     public ToolResult dispatch(ToolContext context, ToolCall call) {
         if (call == null || call.tool() == null || call.tool().isBlank()) {
-            return ToolResult.badArguments("没有指定工具名");
+            return ToolResult.badArguments(AgentLang.t("agent.tool.no_tool_name"));
         }
 
         Tool tool = registry.get(call.tool());
@@ -48,27 +49,28 @@ public final class ToolDispatcher {
 
         if (spec.risk() == RiskLevel.FORBIDDEN) {
             SteveMod.LOGGER.warn("[Agent/Tool] 拒绝执行被禁止的工具: {}", spec.name());
-            return ToolResult.denied("工具 '" + spec.name() + "' 属于被禁止的能力，永远不允许执行");
+            return ToolResult.denied(AgentLang.t("agent.tool.forbidden", spec.name()));
         }
 
         if (!context.allows(spec.permission())) {
             SteveMod.LOGGER.warn("[Agent/Tool] 权限不足: {} 需要 {}",
                 spec.name(), spec.permission());
-            return ToolResult.denied("没有权限执行 '" + spec.name()
-                + "'（需要 " + spec.permission() + "）");
+            return ToolResult.denied(AgentLang.t("agent.tool.no_permission",
+                spec.name(), spec.permission()));
         }
 
         try {
             ToolResult result = tool.invoke(context, call);
             if (result == null) {
                 // A tool returning null would corrupt the reflection layer - treat as an error.
-                return ToolResult.error("工具 '" + spec.name() + "' 没有返回结果");
+                return ToolResult.error(AgentLang.t("agent.tool.no_result", spec.name()));
             }
             SteveMod.LOGGER.debug("[Agent/Tool] {} -> {}", spec.name(), result);
             return result;
         } catch (Exception e) {
             SteveMod.LOGGER.error("[Agent/Tool] 工具 '{}' 执行异常", spec.name(), e);
-            return ToolResult.error("工具 '" + spec.name() + "' 执行出错: " + e.getMessage());
+            return ToolResult.error(AgentLang.t("agent.tool.crashed",
+                spec.name(), e.getMessage()));
         }
     }
 }

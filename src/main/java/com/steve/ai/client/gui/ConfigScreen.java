@@ -45,12 +45,12 @@ public class ConfigScreen extends ScrollableSettingsScreen {
     };
 
     public ConfigScreen(Screen parent) {
-        super(Component.literal("大模型API配置"), parent);
+        super(Component.translatable("aisteve.screen.llm.title"), parent);
     }
 
     @Override
-    protected String hintText() {
-        return "支持所有 OpenAI 兼容接口的 LLM 服务商（可用滚轮滚动）";
+    protected Component hintText() {
+        return Component.translatable("aisteve.screen.llm.hint");
     }
 
     @Override
@@ -76,13 +76,13 @@ public class ConfigScreen extends ScrollableSettingsScreen {
         y += ROW_HEIGHT + 4;
 
         presetHint = new StringWidget(x, y, FIELD_WIDTH, 12,
-            Component.literal("§8点击切换预设可自动填入地址与模型名"), this.font);
+            Component.translatable("aisteve.screen.llm.preset_hint"), this.font);
         addContent(presetHint, y);
         y += 16;
 
         // ---- 输入框 ----
         baseUrlField = new EditBox(this.font, fieldX, y, fieldWidth, ROW_HEIGHT,
-            Component.literal("API Base URL"));
+            Component.translatable("aisteve.screen.llm.base_url"));
         baseUrlField.setHint(Component.literal("https://api.example.com/v1"));
         String currentBaseUrl = SteveConfig.DEEPSEEK_BASE_URL.get();
         if (currentBaseUrl == null || currentBaseUrl.isEmpty()) {
@@ -94,7 +94,7 @@ public class ConfigScreen extends ScrollableSettingsScreen {
         y += ROW_HEIGHT + ROW_GAP;
 
         apiKeyField = new EditBox(this.font, fieldX, y, fieldWidth, ROW_HEIGHT,
-            Component.literal("API Key"));
+            Component.translatable("aisteve.screen.llm.api_key"));
         apiKeyField.setHint(Component.literal("sk-..."));
         String apiKey = SteveConfig.DEEPSEEK_API_KEY.get();
         if (apiKey == null || apiKey.isEmpty()) {
@@ -106,7 +106,7 @@ public class ConfigScreen extends ScrollableSettingsScreen {
         y += ROW_HEIGHT + ROW_GAP;
 
         modelField = new EditBox(this.font, fieldX, y, fieldWidth, ROW_HEIGHT,
-            Component.literal("Model"));
+            Component.translatable("aisteve.screen.llm.model"));
         modelField.setHint(Component.literal("deepseek-chat / gpt-4o"));
         String model = SteveConfig.DEEPSEEK_MODEL.get();
         if (model == null || model.isEmpty()) {
@@ -118,7 +118,7 @@ public class ConfigScreen extends ScrollableSettingsScreen {
         y += ROW_HEIGHT + ROW_GAP;
 
         maxTokensField = new EditBox(this.font, fieldX, y, fieldWidth, ROW_HEIGHT,
-            Component.literal("Max Tokens"));
+            Component.translatable("aisteve.screen.llm.max_tokens"));
         maxTokensField.setHint(Component.literal("100-65536"));
         maxTokensField.setValue(String.valueOf(SteveConfig.MAX_TOKENS.get()));
         maxTokensField.setMaxLength(10);
@@ -126,7 +126,7 @@ public class ConfigScreen extends ScrollableSettingsScreen {
         y += ROW_HEIGHT + ROW_GAP;
 
         temperatureField = new EditBox(this.font, fieldX, y, fieldWidth, ROW_HEIGHT,
-            Component.literal("Temperature"));
+            Component.translatable("aisteve.screen.llm.temperature"));
         temperatureField.setHint(Component.literal("0.0-2.0"));
         temperatureField.setValue(String.valueOf(SteveConfig.TEMPERATURE.get()));
         temperatureField.setMaxLength(10);
@@ -137,13 +137,13 @@ public class ConfigScreen extends ScrollableSettingsScreen {
         int halfWidth = (FIELD_WIDTH - 20) / 2;
 
         addContent(Button.builder(
-                Component.literal("保存并应用"),
+                Component.translatable("aisteve.screen.llm.save"),
                 button -> saveAndClose())
             .bounds(x, y, halfWidth, ROW_HEIGHT)
             .build(), y);
 
         addContent(Button.builder(
-                Component.literal("取消"),
+                Component.translatable("aisteve.screen.llm.cancel"),
                 button -> goBack())
             .bounds(x + halfWidth + 20, y, halfWidth, ROW_HEIGHT)
             .build(), y);
@@ -152,7 +152,7 @@ public class ConfigScreen extends ScrollableSettingsScreen {
     }
 
     private Component presetLabel() {
-        return Component.literal("预设: " + PRESETS[currentPreset].name);
+        return Component.translatable("aisteve.screen.llm.preset", PRESETS[currentPreset].name);
     }
 
     @Override
@@ -160,14 +160,14 @@ public class ConfigScreen extends ScrollableSettingsScreen {
         int labelX = this.width / 2 - FIELD_WIDTH / 2;
 
         // 标签按输入框当前（已随滚动更新的）Y 定位，滚动时自动跟随。
-        drawLabel(graphics, "API地址:", labelX, baseUrlField);
-        drawLabel(graphics, "API密钥:", labelX, apiKeyField);
-        drawLabel(graphics, "模型名称:", labelX, modelField);
-        drawLabel(graphics, "最大令牌:", labelX, maxTokensField);
-        drawLabel(graphics, "温度:", labelX, temperatureField);
+        drawLabel(graphics, Component.translatable("aisteve.screen.llm.base_url"), labelX, baseUrlField);
+        drawLabel(graphics, Component.translatable("aisteve.screen.llm.api_key"), labelX, apiKeyField);
+        drawLabel(graphics, Component.translatable("aisteve.screen.llm.model"), labelX, modelField);
+        drawLabel(graphics, Component.translatable("aisteve.screen.llm.max_tokens"), labelX, maxTokensField);
+        drawLabel(graphics, Component.translatable("aisteve.screen.llm.temperature"), labelX, temperatureField);
     }
 
-    private void drawLabel(GuiGraphics graphics, String text, int x, EditBox field) {
+    private void drawLabel(GuiGraphics graphics, Component text, int x, EditBox field) {
         if (field == null || !field.visible) {
             return;
         }

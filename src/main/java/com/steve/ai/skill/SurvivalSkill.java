@@ -1,5 +1,6 @@
 package com.steve.ai.skill;
 
+import com.steve.ai.i18n.AgentLang;
 import com.steve.ai.protocol.Observation;
 import com.steve.ai.protocol.ToolCall;
 
@@ -63,10 +64,10 @@ public final class SurvivalSkill implements Skill {
         boolean inDanger = retreat
             || (observation != null && observation.hasHostileWithin(10.0) && healthFraction < 0.5f);
         if (inDanger) {
-            return SkillPlan.of("先撤离危险区域",
-                new ToolCall("flee", Map.of(), "血量不足，先跑"),
+            return SkillPlan.of(AgentLang.t("agent.skill.survival.flee"),
+                new ToolCall("flee", Map.of(), "low health"),
                 new ToolCall("send_chat",
-                    Map.of("message", "我血不多了，先撤一下！"), "通知玩家"));
+                    Map.of("message", AgentLang.t("agent.skill.survival.flee_chat")), "notify"));
         }
 
         // 2) Eat what we are carrying - the cheapest possible fix.
@@ -76,20 +77,20 @@ public final class SurvivalSkill implements Skill {
                 Map<String, Object> args = new LinkedHashMap<>();
                 args.put("item", foodItem);
                 args.put("self", true);
-                return SkillPlan.of("吃掉背包里的 " + foodItem,
-                    new ToolCall("use_item", args, "吃东西回饱食度"));
+                return SkillPlan.of(AgentLang.t("agent.skill.survival.eat", foodItem),
+                    new ToolCall("use_item", args, "eat"));
             }
 
             // 3) Nothing edible carried: go and find some, and be honest about it.
             Map<String, Object> lootArgs = new LinkedHashMap<>();
             lootArgs.put("item", "food");
-            return SkillPlan.of("附近找找有没有能吃的",
-                new ToolCall("open_container", lootArgs, "翻箱子找食物"),
+            return SkillPlan.of(AgentLang.t("agent.skill.survival.find_food"),
+                new ToolCall("open_container", lootArgs, "loot for food"),
                 new ToolCall("send_chat",
-                    Map.of("message", "我身上没吃的了，去翻翻箱子。"), "告诉玩家"));
+                    Map.of("message", AgentLang.t("agent.skill.survival.no_food_chat")), "notify"));
         }
 
-        return SkillPlan.nothing("暂时不需要处理生存问题");
+        return SkillPlan.nothing("no survival action needed");
     }
 
     /** First carried food item, or {@code null}. */

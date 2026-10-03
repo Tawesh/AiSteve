@@ -1,5 +1,6 @@
 package com.steve.ai.skill;
 
+import com.steve.ai.i18n.AgentLang;
 import com.steve.ai.protocol.Observation;
 import com.steve.ai.protocol.ToolCall;
 
@@ -78,23 +79,23 @@ public final class CombatSkill implements Skill {
         if (defending) {
             // 先说一声再动手 —— 真人队友会喊一句，而不是默默冲上去。
             steps.add(new ToolCall("send_chat",
-                Map.of("message", "别怕，我来对付" + target + "！"), "提醒玩家"));
+                Map.of("message", AgentLang.t("agent.skill.combat.chat", target)), "chat"));
         }
 
-        steps.add(new ToolCall("attack_entity", attackArgs, "攻击 " + target));
+        steps.add(new ToolCall("attack_entity", attackArgs, "attack " + target));
 
         if (animal) {
             // Killing something edible is only useful if the drop is collected.
-            steps.add(new ToolCall("pickup_item", Map.of(), "捡起掉落物"));
+            steps.add(new ToolCall("pickup_item", Map.of(), "pickup"));
         }
 
         String narrative;
         if (defending) {
-            narrative = "保护玩家，消灭 " + target;
+            narrative = AgentLang.t("agent.skill.combat.defend", target);
         } else if (animal) {
-            narrative = "猎杀 " + count + " 只 " + target + " 并捡走掉落物";
+            narrative = AgentLang.t("agent.skill.combat.hunt", count, target);
         } else {
-            narrative = "消灭 " + count + " 个 " + target;
+            narrative = AgentLang.t("agent.skill.combat.kill", count, target);
         }
         return SkillPlan.of(narrative, steps);
     }

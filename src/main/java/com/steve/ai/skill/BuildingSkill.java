@@ -1,5 +1,6 @@
 package com.steve.ai.skill;
 
+import com.steve.ai.i18n.AgentLang;
 import com.steve.ai.protocol.Observation;
 import com.steve.ai.protocol.ToolCall;
 
@@ -42,7 +43,7 @@ public final class BuildingSkill implements Skill {
         args.put("structure", structure);
         args.put("blocks", DEFAULT_BLOCKS);
 
-        String narrative = "建造 " + structure;
+        String narrative = AgentLang.t("agent.skill.build", structure);
         return SkillPlan.of(narrative, new ToolCall("build", args, narrative));
     }
 }

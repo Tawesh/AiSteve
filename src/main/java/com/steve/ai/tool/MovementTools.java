@@ -1,5 +1,6 @@
 package com.steve.ai.tool;
 
+import com.steve.ai.i18n.AgentLang;
 import com.steve.ai.protocol.Permission;
 import com.steve.ai.protocol.RiskLevel;
 import com.steve.ai.protocol.ToolResult;
@@ -58,7 +59,7 @@ public final class MovementTools {
                 args.put("z", z);
                 ctx.enqueue("pathfind", args);
 
-                return ToolResult.scheduled("开始前往 " + x + "," + y + "," + z);
+                return ToolResult.scheduled(AgentLang.t("agent.tool.move.start", x, y, z));
             }
         };
     }
@@ -78,7 +79,7 @@ public final class MovementTools {
                 Map<String, Object> args = new LinkedHashMap<>();
                 args.put("player", player);
                 ctx.enqueue("follow", args);
-                return ToolResult.scheduled("开始跟随 " + player);
+                return ToolResult.scheduled(AgentLang.t("agent.tool.move.follow", player));
             }
         };
     }
@@ -101,16 +102,16 @@ public final class MovementTools {
                 if (player != null && !player.isBlank()) {
                     var nearest = ctx.observation() == null ? null : ctx.observation().nearestPlayer();
                     if (nearest == null) {
-                        return ToolResult.notFound("视野里没有玩家可以看");
+                        return ToolResult.notFound(AgentLang.t("agent.tool.move.look_no_player"));
                     }
                     ctx.movement().lookAt(nearest.x(), nearest.y(), nearest.z());
-                    return ToolResult.ok("看向玩家 " + nearest.name());
+                    return ToolResult.ok(AgentLang.t("agent.tool.move.look_player", nearest.name()));
                 }
                 if (!call.hasAll("x", "y", "z")) {
-                    return ToolResult.badArguments("需要 x/y/z 坐标，或者 player");
+                    return ToolResult.badArguments(AgentLang.t("agent.tool.move.look_need_args"));
                 }
                 ctx.movement().lookAt(call.decimal("x", 0), call.decimal("y", 0), call.decimal("z", 0));
-                return ToolResult.ok("已转头看向目标坐标");
+                return ToolResult.ok(AgentLang.t("agent.tool.move.look_done"));
             }
         };
     }
@@ -126,7 +127,7 @@ public final class MovementTools {
             @Override
             public ToolResult invoke(ToolContext ctx, com.steve.ai.protocol.ToolCall call) {
                 ctx.movement().jump();
-                return ToolResult.ok("跳了一下");
+                return ToolResult.ok(AgentLang.t("agent.tool.move.jump"));
             }
         };
     }
@@ -142,7 +143,7 @@ public final class MovementTools {
             @Override
             public ToolResult invoke(ToolContext ctx, com.steve.ai.protocol.ToolCall call) {
                 ctx.movement().stop();
-                return ToolResult.ok("已经停下");
+                return ToolResult.ok(AgentLang.t("agent.tool.move.stop"));
             }
         };
     }
