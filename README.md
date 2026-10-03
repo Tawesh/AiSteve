@@ -1,298 +1,395 @@
-# Steve AI - Autonomous AI Agent for Minecraft
+<div align="center">
 
-We built Cursor for Minecraft. Instead of AI that helps you write code, you get AI agents that actually play the game with you.
+# AiSteve
 
-https://github.com/user-attachments/assets/23f0ccdd-7a7a-4d49-9dd9-215ebf67265a
+**An AI companion that actually plays Minecraft with you.**
 
-## What It Does
+Not a scripted bot. A layered agent that perceives, remembers, forms its own goals,
+and only asks a language model when it genuinely needs to think.
 
-Steve acts as an Agent, or a series of Agents if you choose to employ all of them. You describe what you want, and he understands the context and executes. Same concept here, except instead of code editing, you get embodied Steves that operate in your Minecraft world.
+[![Minecraft](https://img.shields.io/badge/Minecraft-1.20.1-62B47A?style=flat-square)](https://www.minecraft.net/)
+[![Forge](https://img.shields.io/badge/Forge-47.2.0+-E04E14?style=flat-square)](https://files.minecraftforge.net/)
+[![Java](https://img.shields.io/badge/Java-17-ED8B00?style=flat-square)](https://adoptium.net/)
+[![License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
 
-The interface is simple: press K to open a panel, type what you need. The agents handle the interpretation, planning, and execution. Say "mine some iron" and the agent reasons about where iron spawns, navigates to the appropriate depth, locates ore veins, and extracts the resources. Ask for a house and it considers the available materials, generates an appropriate structure, and builds it block by block.
+**English** · [简体中文](README.zh-CN.md)
 
-What makes this interesting is the multi-agent coordination. When multiple Steves work on the same task, they don't just independently execute, they actively coordinate to avoid conflicts and optimize workload distribution. Tell three agents to build a castle and they'll automatically partition the structure, divide sections among themselves, and parallelize the construction.
+</div>
 
-The agents aren't following predefined scripts. They're operating off natural language instructions, which means:
-- **Resource extraction** where agents determine optimal mining locations and strategies
-- **Autonomous building** with agents planning layouts and material usage
-- **Combat and defense** where agents assess threats and coordinate responses
-- **Exploration and gathering** with pathfinding and resource location
-- **Collaborative execution** with automatic workload balancing and conflict resolution
+---
 
-## Quick Start
+## What it is
 
-**You need:**
-- Minecraft 1.20.1 with Forge
-- Java 17
-- An OpenAI API key (or Groq/Gemini if you prefer)
+AiSteve adds an AI **player** to your world. You talk to it in plain language and it works
+out the rest — mining, chopping, crafting, fishing, farming, looting, building, fighting
+and exploring. It follows you, remembers you, warns you about mobs, and comes to your
+defence when something hits you.
 
-**Installation:**
-1. Download the JAR from releases
-2. Put it in your `mods` folder
-3. Launch Minecraft
-4. Copy `config/steve-common.toml.example` to `config/steve-common.toml`
-5. Add your API key to the config
+It is a **Forge** mod for **Minecraft 1.20.1**. There is no GUI panel for commanding it —
+everything goes through chat with the `/as` command.
 
-**Config example:**
+> **One companion at a time.** `SteveManager` enforces a single instance.
+
+### Why it is not just another "LLM → action" wrapper
+
+Most implementations do this:
+
+```
+Minecraft → LLM → action → Minecraft
+```
+
+…which works until it doesn't, and then the AI behaves like a twitchy robot that costs
+money on every step. AiSteve is layered instead:
+
+```
+Minecraft ─→ Perception ─→ Event Bus ─→ Memory / Needs / Goals / Social
+                                             │
+                                         Planner ──(skill first, LLM second)──→ LLM
+                                             │
+                                         Skills ─→ Tools ─→ Permission Gate
+                                             │
+                                       ActionExecutor (20 TPS) ─→ Minecraft
+```
+
+The rules that follow from that shape:
+
+- **The LLM never drives per-tick input.** It decides *what to do next*; the action layer
+  decides how to do it.
+- **Two time scales.** Actions run at 20 TPS. Perception runs at 2 Hz. The model is
+  consulted at most a couple of times per second, and only when a goal cannot be planned
+  without it.
+- **Skills before the LLM.** The twenty most common requests — mine iron, chop wood, follow
+  me, build a house — are deterministic plans that cost **zero tokens**.
+- **No teleporting.** `MovementController` has no `teleport` method at all. The AI says
+  "go to 200,64,-300"; pathfinding and physics do the rest.
+- **Bounded perception.** Each category in `Observation` is capped, so token cost is flat
+  no matter how busy the world is.
+- **Capability boundaries live in code.** Teleporting, spawning items, changing gamemode and
+  killing players are never exposed to the model. `ToolDispatcher` enforces it.
+
+Read the full design in **[ARCHITECTURE.md](ARCHITECTURE.md)**.
+
+---
+
+## Features
+
+### It plays the game
+
+| | |
+| --- | --- |
+| ⛏️ **Mining** | Walks to the nearest target, or digs a staircase down to the right Y level and branch-mines. Fells whole trees. |
+| 🔨 **Crafting** | Uses the real recipe list, honours item tags, consumes materials, and **builds its own crafting table** when a 3×3 recipe needs one. |
+| 🍖 **Food** | Loots village chests, fishes (vanilla drop probabilities), harvests and replants crops, or hunts animals. |
+| 🏠 **Building** | Procedural houses, castles, towers, barns, modern builds. |
+| 🗺️ **Exploring** | Paths in segments towards a target, and stops early when it spots what it was looking for. |
+| ⚔️ **Combat** | Fights hostiles or a named animal, with a quantity. |
+| 📦 **Items** | Uses, gives, picks up and drops items — all against its real inventory. It never conjures anything. |
+
+### It behaves like someone who lives there
+
+- **Four layers of memory** — working (the last few minutes), episodic (what actually
+  happened), semantic (how Minecraft works), and social (what it knows about *you*: trust,
+  interaction count, "喜欢建房子"). The last three survive restarts.
+- **Needs** — hunger, safety, social, exploration, achievement, resources, curiosity. These
+  drive behaviour when nobody has asked for anything.
+- **Persona** — curiosity / courage / humour / helpfulness / risk-aversion, plus a speaking
+  style, so two companions do not behave identically.
+- **Goal stack with dynamic priorities** — drop to 35% health and `SURVIVE` jumps to 100
+  while `EXPLORE` collapses. Nobody hard-codes that transition.
+- **Reflection** — when a step fails it works out *why* ("需要铁镐") and tries a different
+  approach, up to three times, then says honestly what it could not do.
+- **It talks** — announces what it is about to do, reports when it is done, says what went
+  wrong, and occasionally chats unprompted. Rate-limited so it never spams.
+- **It stays with you** — bounded to a configurable radius (default 48 blocks). Drift
+  outside and it works its way back rather than vanishing over the horizon.
+- **It protects you** — when you get hit, it goes straight for whatever attacked you. That
+  is a reflex, not a decision it spends thirty seconds on.
+- **It hears you** — ordinary chat within 48 blocks reaches it, not just `/as say`.
+
+### It costs what it should
+
+High-frequency requests never touch a paid API:
+
+```
+"去挖点铁"        → MiningSkill        → break_block        （确定性，0 token）
+"跟着我"          → SocialSkill        → follow_player      （确定性，0 token）
+"建个房子"        → BuildingSkill      → build              （确定性，0 token）
+"用这些做个陷阱"   → no skill matches  → LLM                （真正开放的任务才花钱）
+```
+
+---
+
+## Requirements
+
+| | |
+| --- | --- |
+| Minecraft | **1.20.1** |
+| Forge | **47.2.0+** |
+| Java | **17** (exactly — JDK 21+ breaks the build) |
+| RAM | ≥ 3 GB free for the first build |
+| Network | access to your LLM provider at runtime |
+
+> **Fabric and NeoForge are not supported.** Forge only.
+
+---
+
+## Install
+
+### 1. Get the jar
+
+Download `aisteve-1.0.0-all.jar` from
+[Releases](https://github.com/Tawesh/AiSteve/releases), or build it yourself
+(see [Building](#building)).
+
+> ⚠️ **Use the `-all` jar.** The plain `aisteve-1.0.0.jar` contains only the mod's own
+> classes; installing it alone crashes with `NoClassDefFoundError` the moment the AI tries
+> to plan anything.
+
+### 2. Drop it in `mods/`
+
+```
+.minecraft/mods/aisteve-1.0.0-all.jar
+```
+
+### 3. Launch once, then configure
+
+The first launch generates `config/aisteve-common.toml`. Fill in your API key and
+**restart**:
+
 ```toml
-[openai]
-apiKey = "your-api-key-here"
-model = "gpt-3.5-turbo"
-maxTokens = 1000
-temperature = 0.7
+[ai]
+provider = "deepseek"
+
+[deepseek]
+apiKey  = "sk-your-key-here"
+model   = "deepseek-chat"
+baseUrl = "https://api.deepseek.com"
 ```
 
-Then spawn a Steve with `/steve spawn Bob` and press K to start giving commands.
+> The config lives in **`config/`**, not in `mods/`. A template is included at
+> `config/aisteve-common.toml.example`.
 
-## Usage Examples
+### 4. Create your companion
 
 ```
-"mine 20 iron ore"
-"build a house near me"
-"help Alex with the tower"
-"defend me from zombies"
-"follow me"
-"gather wood from that forest"
-"make a cobblestone platform here"
-"attack that creeper"
+/as create Bob
 ```
 
-The agents are pretty good at figuring out what you mean. You don't need to be super specific.
+---
 
-## Technical Architecture
+## Usage
 
-### System Overview
+Talk to it in ordinary language — you do not need to memorise syntax.
 
-Each Steve runs an autonomous agent loop that processes natural language commands through an LLM, converts them into structured actions, and executes them using Minecraft's game mechanics. The system uses a direct action execution model optimized for real-time gameplay rather than a traditional ReAct framework.
-
-**Core execution flow:**
-1. User input captured via GUI (press K)
-2. Task sent to TaskPlanner with conversation context
-3. LLM (Groq/OpenAI/Gemini) generates structured action plan
-4. ResponseParser extracts actions from LLM response
-5. ActionExecutor processes actions through specialized action classes
-6. Actions execute tick-by-tick to avoid freezing the game
-7. Results fed back into conversation memory for context
-
-### Core Components
-
-**LLM Integration** (`com.steve.ai.llm`)
-- **GeminiClient, GroqClient, OpenAIClient**: Pluggable LLM providers for agent reasoning
-- **TaskPlanner**: Orchestrates LLM calls with context (conversation history, world state, Steve capabilities)
-- **PromptBuilder**: Constructs prompts with available actions, examples, and formatting instructions
-- **ResponseParser**: Extracts structured action sequences from LLM responses
-
-**Action System** (`com.steve.ai.action`)
-- **ActionExecutor**: Tick-based action execution engine (prevents game freezing)
-- **BaseAction**: Abstract class for all actions (mine, build, move, combat, etc.)
-- **Task**: Data model for action parameters and metadata
-- **Available Actions**:
-  - MineBlockAction: Intelligent ore/block mining with pathfinding
-  - BuildStructureAction: Procedural building
-  - PlaceBlockAction: Single block placement with validation
-  - MoveToAction: Pathfinding-based movement
-  - AttackAction: Combat with target selection
-  - FollowAction: Player/entity following
-  - WaitAction: Controlled delays and synchronization
-
-**Structure Generation** (`com.steve.ai.structure`)
-- **StructureGenerators**: Procedural generation algorithms (houses, castles, towers, barns)
-- **StructureLoader**: NBT file loading from resources
-- **BlockPlacement**: Shared data structure for block positioning
-
-**Multi-Agent Collaboration** (`com.steve.ai.action`)
-- **CollaborativeBuildManager**: Server-side coordination for parallel building
-- **Spatial partitioning**: Automatically divides structures into non-overlapping sections
-- **Work distribution**: Assigns sections to available Steves
-- **Conflict prevention**: Atomic block placement with position tracking
-- **Dynamic rebalancing**: Reassigns work when agents finish early
-
-**Memory & Context** (`com.steve.ai.memory`)
-- **SteveMemory**: Per-agent conversation history and task context
-- **WorldKnowledge**: Tracks discovered resources, landmarks, and spatial data
-- **StructureRegistry**: Catalogs built structures for reference and avoidance
-
-**Code Execution** (`com.steve.ai.execution`)
-- **CodeExecutionEngine**: GraalVM JavaScript engine for LLM-generated scripts
-- **SteveAPI**: Safe API bridge exposing Minecraft actions to scripts
-- **Sandboxing**: Restricted environment preventing harmful operations
-
-### Key Design Decisions
-
-**Tick-Based Execution**
-Actions run incrementally across multiple game ticks rather than blocking. This prevents server freezes and maintains responsiveness. Each action's `tick()` method does minimal work per frame and tracks progress internally.
-
-**Direct Action Execution (Not Traditional ReAct)**
-While inspired by ReAct, we use direct action execution for real-time gameplay. The LLM generates complete action sequences upfront rather than iterative observe-think-act cycles. This reduces API calls and latency, critical for game responsiveness.
-
-**Multi-Agent Coordination**
-Collaborative builds use deterministic spatial partitioning. Structures are divided into rectangular sections based on agent count. Each Steve claims a section atomically, preventing conflicts. The manager is fully server-side using ConcurrentHashMap for thread safety.
-
-**Memory Management**
-Context windows are managed by pruning old messages while keeping recent exchanges and critical world state. Each LLM call includes: conversation history (last 10 exchanges), current task details, Steve's position/inventory, and known world features.
-
-### Integration with Minecraft
-
-**Entity Registration**
-Steves are custom EntityType registered via Forge's deferred registry system. They extend PathfinderMob for vanilla pathfinding integration and implement custom goals for AI behavior.
-
-**Event Hooks**
-- ServerStarting: Initialize collaborative build manager
-- ServerStopping: Cleanup active tasks and save state
-- ClientTick: GUI rendering and input handling
-
-**GUI Implementation**
-Custom overlay GUI activated with K key. Uses Minecraft's Screen class with custom rendering. Text input forwarded to TaskPlanner on submission.
-
-## Building from Source
-
-Standard Gradle workflow:
-
-```bash
-git clone https://github.com/YuvDwi/Steve.git
-cd Steve
-./gradlew build
+```
+/as 帮我弄一个羊排
+/as 去挖点铁
+/as 在我前面建个房子
+/as 跟着我
 ```
 
-Output JAR will be in `build/libs/`. To test in development:
+### Commands
 
-```bash
-./gradlew runClient
-```
+| Command | What it does |
+| --- | --- |
+| `/as create <name>` | Create the AI companion |
+| `/as remove` | Remove it (drops whatever it was carrying) |
+| `/as cleanup` | Force-clear every AI entity in the world — use after upgrading |
+| `/as info` | Position, health, inventory, current goal |
+| `/as agent` | Agent state: persona, needs, memory, loop phase |
+| `/as goals` | The goal stack (type, priority, source) |
+| `/as memory` | What it remembers about players and the past |
+| `/as stop` | Stop the current task immediately |
+| `/as come` | Call it to your side (if it got lost) |
+| `/as say <text>` | Give it a task, or just chat |
+| `/as <text>` | Shorthand for the above |
+| `/as give` | Hand over whatever you are holding |
+| `/as give <item> [count]` | Give a specific item |
+| `/as take` | Take everything it is carrying |
 
-**Project Structure:**
-```
-src/main/java/com/steve/ai/
-├── entity/          # Steve entity, spawning, lifecycle
-├── llm/             # LLM clients, prompt building, response parsing
-├── action/          # Action classes and collaborative build manager
-├── structure/       # Procedural generation and template loading
-├── memory/          # Context management and world knowledge
-├── execution/       # JavaScript code execution engine
-├── client/          # GUI overlay
-└── command/         # Minecraft commands (/steve spawn, etc)
-```
+**`/as give` is the main way to equip it.** Whatever is in your hand goes to it — a flint
+and steel, a fishing rod, building materials.
 
-## Contributing
+### In-game settings (K key)
 
-We welcome contributions! Here's how to get started:
+| Page | Contents |
+| --- | --- |
+| 大模型配置 | Provider, API key, model, tokens, temperature |
+| AI 权限与行为 | Agent on/off, autonomy, roam radius, chat, narration, PvP defence |
+| AI 能力开关 | Per-capability toggles (mining, building, crafting, combat, …) |
 
-### Reporting Bugs
+All pages scroll, and the behaviour settings take effect **without restarting**.
 
-1. Check [existing issues](https://github.com/YuvDwi/Steve/issues) first
-2. Include:
-   - Minecraft/Forge/Steve AI versions
-   - Steps to reproduce
-   - Expected vs actual behavior
-   - Logs from `logs/latest.log`
-
-### Submitting Code
-
-1. **Fork and clone**
-   ```bash
-   git clone https://github.com/YourUsername/Steve.git
-   cd Steve
-   ```
-
-2. **Create feature branch**
-   ```bash
-   git checkout -b feature/your-feature-name
-   ```
-
-3. **Make changes**
-   - Follow code style (4-space indent, JavaDoc for public APIs)
-   - Test with `./gradlew build && ./gradlew runClient`
-
-4. **Submit PR**
-   - Clear commit messages
-   - Describe changes and reasoning
-   - Link related issues
-
-### Code Style
-
-- **Classes**: PascalCase
-- **Methods/Variables**: camelCase
-- **Constants**: UPPER_SNAKE_CASE
-- **Indentation**: 4 spaces
-- **Line length**: Max 120 characters
-- **Comments**: JavaDoc for public methods
-
-**Adding New Actions:**
-1. Extend `BaseAction` in `com.steve.ai.action.actions`
-2. Implement `tick()`, `isComplete()`, `onCancel()`
-3. Update `PromptBuilder.java` to inform LLM about new action
-4. Add example usage in prompt template
+---
 
 ## Configuration
 
-Edit `config/steve-common.toml`:
+`config/aisteve-common.toml`
 
 ```toml
-[llm]
-provider = "groq"  # Options: openai, groq, gemini
+[ai]
+provider = "deepseek"          # deepseek | openai | groq | gemini
+
+[deepseek]
+apiKey  = ""
+model   = "deepseek-chat"
+baseUrl = "https://api.deepseek.com"
 
 [openai]
-apiKey = "sk-..."
-model = "gpt-3.5-turbo"
-maxTokens = 1000
+apiKey      = ""
+model       = "gpt-4-turbo-preview"
+maxTokens   = 8000
 temperature = 0.7
 
-[groq]
-apiKey = "gsk_..."
-model = "llama3-70b-8192"
-maxTokens = 1000
+[behavior]
+actionTickDelay    = 20
+enableChatResponses = true
 
-[gemini]
-apiKey = "AI..."
-model = "gemini-1.5-flash"
-maxTokens = 1000
+[agent]
+enabled               = true   # layered Agent Runtime vs legacy one-shot planner
+autonomy              = true   # pursue its own needs when idle
+roamRadius            = 48     # how far it may stray before heading back (blocks)
+idleChat              = true   # speak up on its own
+progressNarration     = true   # announce plans and report results
+defendAgainstPlayers  = true   # fight back when another player attacks you
 ```
 
-**Performance Tips:**
-- Use Groq for fastest inference (recommended for gameplay)
-- GPT-4 for better planning but higher latency
-- Lower temperature (0.5-0.7) for more deterministic actions
+Provider/API settings need a restart. `[agent]` and `[behavior]` settings can be changed
+in-game and apply immediately.
 
-## Known Issues
+---
 
-**The agents are only as smart as the LLM.** GPT-3.5 works but makes occasional weird decisions. GPT-4 is noticeably better at multi-step planning.
+## Status: what works, what doesn't
 
-**No crafting yet.** Agents can mine and place blocks but can't craft tools. We're working on it.
+**AiSteve is functional and genuinely playable, but it is not finished.** The honest
+breakdown lives in **[docs/STATUS.md](docs/STATUS.md)**. The headline items:
 
-**Actions are synchronous.** If a Steve is mining, it can't do anything else until done. Planning to add proper async execution.
+**Works:** layered agent runtime · 22 tools · 16 actions · four-layer memory · 6 skills ·
+goal stack with dynamic priorities · reflection · progress narration · player protection ·
+roam limit · scrollable settings GUI · multi-provider LLM with circuit breaker/retry/cache.
 
-**Memory resets on restart.** Right now context only persists during a play session. We're adding persistent memory with a vector DB.
+**Does not work yet:**
 
-## What's Next
+- 🔴 **No furnace smelting → the iron tier is unreachable.** Iron ore drops raw iron in
+  1.20.1, and raw iron must be smelted into ingots. With no smelt tool the AI gets as far
+  as iron and stops. Diamonds are consequently out of reach too (they need an iron pickaxe).
+- 🔴 **The AI is currently invulnerable** (`hurt()` returns `false`). It cannot take damage
+  or die, so the survival half of the agent — `SAFETY`, `SURVIVE`, `flee` — is never
+  triggered by real injury. This is the biggest semantic gap between "companion" and "real
+  player".
+- 🟠 **No unit tests.** All four test classes in `src/test/` are `// TODO` placeholders.
+- 🟠 **Skill matching is keyword-based**, which is fast and free but occasionally
+  misjudges phrasing.
+- 🟠 **Block perception is throttled** to ~3 s, so "what is around me" can lag the world.
+- 🟡 **Single AI only.** Multi-agent society is not started.
+- 🟡 **Semantic memory retrieval is lexical**, not embedding-based.
+- 🟡 **`equip_item` is an honest no-op** (the action layer picks tools automatically);
+  armour and shields cannot be worn.
+- 🟡 **No structure templates ship with the repo**, so `build` always uses the procedural
+  generator.
 
-Planned features:
-- Crafting system (agents make their own tools)
-- Voice commands via Whisper API
-- Vector database for long-term memory
-- Async action execution for multitasking
-- More building templates and procedural generation
-- Enhanced pathfinding for complex terrain
+---
 
-Goal is to make this actually useful for survival gameplay, not just a tech demo.
+## Building
 
-## Why We Made This
+```bash
+./gradlew compileJava             # quick type/syntax check
+./gradlew build -x test fatJar    # produce the installable jar
+./gradlew runClient               # dev client with the mod loaded
+```
 
-We wanted to see if the Cursor model could work outside of coding. Turns out it translates pretty well. Same principles: deep environment integration, clear action primitives, persistent context.
+On Windows use `gradlew.bat`.
 
-Minecraft is actually a good testbed for agent research. Complex enough to be interesting, constrained enough that agents can actually succeed.
+| Output | Use |
+| --- | --- |
+| `build/libs/aisteve-1.0.0-all.jar` | ✅ **install this** (dependencies bundled) |
+| `build/libs/aisteve-1.0.0.jar` | ⚠️ mod classes only — crashes if installed alone |
 
-Plus it's just fun watching AIs build castles while you explore.
+The first build downloads Minecraft, Forge and the MCP mappings and takes several minutes.
+
+Detailed guidance (JDK setup, proxy configuration, troubleshooting the build):
+**[docs/BUILD.zh-CN.md](docs/BUILD.zh-CN.md)** *(Chinese)*.
+
+---
+
+## Project layout
+
+```
+src/main/java/com/steve/ai/
+├── protocol/     Agent Protocol: Observation / ToolSpec / ToolCall / ToolResult / AgentDecision
+├── perception/   PerceptionService + Self/Inventory/Entity/WorldObserver
+├── memory/       Working / Episodic / Semantic / Social + MemoryManager
+├── brain/        Goal, GoalManager, Needs, Persona, Planner, Plan, Reflection, SocialSystem
+├── skill/        Skill + SkillRegistry and the built-in skills
+├── tool/         Tool + ToolRegistry + ToolDispatcher (permission gate) + tool groups
+├── agent/        AgentRuntime (wiring root) and AgentLoop (observe → think → act → reflect)
+├── action/       The 16 low-level actions that touch the world
+├── llm/          Provider clients, prompts, response parsing
+├── event/        Forge event glue + the agent event bus
+├── entity/       SteveEntity, inventory, manager
+├── structure/    Procedural generation and template loading
+└── ...
+```
+
+## Documentation
+
+| Document | Contents |
+| --- | --- |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Full design: layers, data flows, timing, permission model, migration path |
+| [docs/STATUS.md](docs/STATUS.md) | Implemented / not implemented / known deficiencies / roadmap |
+| [CHANGELOG.md](CHANGELOG.md) | Every change, with the *reason* behind each bug fix |
+| [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | "The AI does nothing" and other common problems *(Chinese)* |
+| [docs/USAGE.zh-CN.md](docs/USAGE.zh-CN.md) | Full usage guide *(Chinese)* |
+| [docs/BUILD.zh-CN.md](docs/BUILD.zh-CN.md) | Build and local development guide *(Chinese)* |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Development setup, architecture rules, how to extend |
+| [CLAUDE.md](CLAUDE.md) | Orientation notes for AI coding assistants |
+
+---
+
+## Upgrading
+
+Internals changed (`steve` → `aisteve`, `/tai` → `/as`) in a way that is **not** an
+in-place upgrade:
+
+1. Run `scripts/migrate-to-aisteve.ps1` — copies your API key to the new config path.
+2. Delete the old jar from `mods/` and add the new one.
+3. In game, run **`/as cleanup`** (clears entities created under the old id), then
+   **`/as create <name>`**.
+
+---
+
+## Troubleshooting
+
+The AI does nothing? In order of likelihood:
+
+1. **No API key.** Check `config/aisteve-common.toml`. The log says so explicitly:
+   `No API key configured for provider 'X'`.
+2. **Config not reloaded.** Provider settings need a restart.
+3. **Wrong jar.** You need the `-all` one.
+4. **Fabric.** This is a Forge mod; it will silently not load.
+
+Full guide: **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** *(Chinese)*.
+
+---
+
+## Contributing
+
+Contributions are welcome — especially **new tools and skills**, which is where the biggest
+gains are. Start with [CONTRIBUTING.md](CONTRIBUTING.md); it covers the development setup,
+the architecture rules that must not be broken, and step-by-step guides for extending each
+layer.
+
+Please read the architecture rules before touching `brain/`, `skill/`, `tool/` or `agent/`.
+Each one exists because breaking it produced a real bug.
+
+---
 
 ## Credits
 
-- OpenAI/Groq/Google for LLM APIs
+- Upstream project: [YuvDwi/Steve](https://github.com/YuvDwi/Steve)
 - Minecraft Forge for the modding framework
-- LangChain/AutoGPT for agent architecture inspiration
+- DeepSeek / OpenAI / Groq / Google for the LLM APIs
 
 ## License
 
-MIT
-
-## Issues
-
-Found a bug? Open an issue: https://github.com/YuvDwi/Steve/issues
+[MIT](LICENSE)

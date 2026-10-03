@@ -1,0 +1,82 @@
+# AiSteve - Example configuration
+#
+# This is a REFERENCE TEMPLATE. The game does not read this file.
+# The mod auto-generates config/aisteve-common.toml on first launch - put your
+# keys there and restart the game.
+#
+# Docs: https://github.com/Tawesh/AiSteve
+
+[ai]
+    # AI provider to use: 'deepseek' (recommended), 'openai', 'groq' or 'gemini'
+    provider = "deepseek"
+
+[deepseek]
+    # Your DeepSeek API key. Get one from: https://platform.deepseek.com/api_keys
+    # If left empty, the value in [openai].apiKey is used as a fallback.
+    apiKey = "sk-your-deepseek-api-key-here"
+
+    # DeepSeek model to use.
+    # Currently available: 'deepseek-flash' (V4.1-Flash, recommended), 'deepseek-v4-pro' (V4-Pro)
+    # Older names 'deepseek-chat' (V3) / 'deepseek-reasoner' (R1) only work on some accounts.
+    model = "deepseek-flash"
+
+    # DeepSeek API base URL (do not include the trailing /chat/completions)
+    baseUrl = "https://api.deepseek.com"
+
+[openai]
+    # Your OpenAI API key (only needed if provider = "openai")
+    apiKey = ""
+
+    # OpenAI model to use (gpt-4, gpt-4-turbo-preview, gpt-3.5-turbo)
+    model = "gpt-4-turbo-preview"
+
+    # Maximum tokens per API request
+    # Note: deepseek-flash / deepseek-v4-pro allow up to 393216 output tokens,
+    # but this mod caps the value at 65536 (adjust the upper bound in SteveConfig if needed).
+    maxTokens = 8000
+
+    # Temperature (0.0-2.0, lower is more deterministic)
+    temperature = 0.7
+
+[behavior]
+    # Ticks between action checks (20 ticks = 1 second)
+    actionTickDelay = 20
+
+    # Allow the AI to respond in chat
+    enableChatResponses = true
+
+    # Maximum number of AI companions that can be active simultaneously
+    # (the mod currently supports exactly one)
+    maxActiveSteves = 10
+
+# ---------------------------------------------------------------------------
+# Layered Agent Runtime - see ARCHITECTURE.md
+#
+# These are also editable in-game (K key -> AI 权限与行为) and take effect
+# immediately, without restarting the game.
+# ---------------------------------------------------------------------------
+[agent]
+    # true  = layered agent: goals + skills + memory, LLM only when needed
+    # false = legacy path: every instruction is translated straight into an action list
+    enabled = true
+
+    # Let the AI pursue its own needs (eat when hungry, retreat when hurt, explore
+    # when bored) instead of standing still until a player gives it an order.
+    autonomy = true
+
+    # How far (in blocks) it may stray from you before working its way back.
+    # This is what stops "autonomy" from turning into "my companion left".
+    # Recommended 32-96.
+    roamRadius = 48
+
+    # Let it speak up on its own: progress reports, danger warnings, small talk.
+    idleChat = true
+
+    # Narrate what it is doing out loud: "先砍树，再做木镐" ... "搞定了".
+    # Turn this off if you find it too chatty.
+    progressNarration = true
+
+    # Allow it to fight back when ANOTHER PLAYER attacks you.
+    # true  = it defends you in PvP too (default)
+    # false = it never targets players, under any circumstance
+    defendAgainstPlayers = true

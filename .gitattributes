@@ -1,0 +1,60 @@
+# ---------------------------------------------------------------------------
+# AiSteve — Git attributes
+#
+# Keeps line endings and diff behaviour predictable across Windows / macOS /
+# Linux, which matters here because the project is developed on Windows but
+# built and reviewed from anywhere.
+# ---------------------------------------------------------------------------
+
+# Default: let Git detect, and let working-tree files use the platform default.
+* text=auto
+
+# ---------------------------------------------------------------------------
+# Source — always LF in the repository.
+# Gradle, Forge and the Java toolchain all handle LF fine on Windows.
+# ---------------------------------------------------------------------------
+*.java    text eol=lf
+*.gradle  text eol=lf
+*.md      text eol=lf
+*.json    text eol=lf
+*.toml    text eol=lf
+*.mcmeta  text eol=lf
+*.properties text eol=lf
+*.gradle.kts text eol=lf
+
+# ---------------------------------------------------------------------------
+# Windows-only scripts must keep CRLF, or PowerShell/cmd can misbehave.
+# Shell scripts must keep LF, or bash reports "bad interpreter".
+# ---------------------------------------------------------------------------
+*.ps1   text eol=crlf
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+*.sh    text eol=lf
+
+# ---------------------------------------------------------------------------
+# Binaries — never touch line endings, never attempt a text diff.
+# gradle-wrapper.jar is deliberately versioned: it is what makes
+# `./gradlew` work on a machine with no Gradle installed.
+# ---------------------------------------------------------------------------
+*.jar   binary
+*.zip   binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.ogg   binary
+*.nbt   binary
+
+# ---------------------------------------------------------------------------
+# Generated / vendored content: collapse in diffs and language stats.
+# ---------------------------------------------------------------------------
+gradle/wrapper/gradle-wrapper.jar  binary
+gradlew                            text eol=lf
+gradlew.bat                        text eol=crlf
+
+# ---------------------------------------------------------------------------
+# Mark generated docs as such so GitHub's language bar stays accurate.
+# ---------------------------------------------------------------------------
+docs/*.md linguist-documentation
+CHANGELOG.md linguist-documentation
