@@ -6,7 +6,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Core plugin that registers all built-in Steve AI actions.
+ * Core plugin that registers all built-in AiSteve actions.
  *
  * <p>This plugin is loaded first (priority 1000) and provides the fundamental
  * actions that Steve can perform: mining, building, combat, pathfinding, etc.</p>
@@ -83,6 +83,48 @@ public class CoreActionsPlugin implements ActionPlugin {
             (steve, task, ctx) -> new FollowPlayerAction(steve, task),
             priority, PLUGIN_ID);
 
+        // Real-player-like item handling
+        registry.register("pickup",
+            (steve, task, ctx) -> new PickupItemsAction(steve, task),
+            priority, PLUGIN_ID);
+
+        registry.register("give",
+            (steve, task, ctx) -> new GiveItemAction(steve, task),
+            priority, PLUGIN_ID);
+
+        registry.register("say",
+            (steve, task, ctx) -> new SayAction(steve, task),
+            priority, PLUGIN_ID);
+
+        // Generic "right click with an item" - the primitive that lets the LLM compose
+        // arbitrary item-based tasks (ignite, eat, place, use on block/entity/self).
+        registry.register("use_item",
+            (steve, task, ctx) -> new UseItemAction(steve, task),
+            priority, PLUGIN_ID);
+
+        // World interaction: opening containers and going out to look for things
+        registry.register("loot_container",
+            (steve, task, ctx) -> new LootContainerAction(steve, task),
+            priority, PLUGIN_ID);
+
+        registry.register("explore",
+            (steve, task, ctx) -> new ExploreAction(steve, task),
+            priority, PLUGIN_ID);
+
+        // Renewables and self-sufficiency
+        registry.register("craft",
+            (steve, task, ctx) -> new CraftItemAction(steve, task),
+            priority, PLUGIN_ID);
+
+        registry.register("fish",
+            (steve, task, ctx) -> new FishingAction(steve, task),
+            priority, PLUGIN_ID);
+
+        registry.register("farm",
+            (steve, task, ctx) -> new FarmAction(steve, task),
+            priority, PLUGIN_ID);
+
+
         LOGGER.info("CoreActionsPlugin loaded {} actions", registry.getActionCount());
     }
 
@@ -108,6 +150,6 @@ public class CoreActionsPlugin implements ActionPlugin {
 
     @Override
     public String getDescription() {
-        return "Core Steve AI actions: mining, building, combat, pathfinding, and more";
+        return "Core AiSteve actions: mining, building, combat, pathfinding, and more";
     }
 }

@@ -5,7 +5,7 @@ import com.steve.ai.di.ServiceContainer;
 /**
  * Service Provider Interface (SPI) for action plugins.
  *
- * <p>Implement this interface to add custom actions to Steve AI.
+ * <p>Implement this interface to add custom actions to AiSteve.
  * The plugin system uses Java's ServiceLoader mechanism for discovery.</p>
  *
  * <p><b>Registration:</b> Create a file at:

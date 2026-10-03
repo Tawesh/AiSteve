@@ -4,6 +4,7 @@ import com.steve.ai.llm.async.LLMResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.regex.Pattern;
 
@@ -20,24 +21,19 @@ import java.util.regex.Pattern;
  *   <li>All retry attempts exhausted</li>
  *   <li>Rate limiter rejects request</li>
  *   <li>Network is completely unavailable</li>
+ *   <li>No API key configured (the most common cause)</li>
  * </ul>
  *
- * <p><b>Design Philosophy:</b></p>
+ * <p><b>Response format contract (IMPORTANT):</b></p>
+ * <p>Responses must match exactly what {@link com.steve.ai.llm.ResponseParser} expects,
+ * otherwise the tasks are silently dropped:</p>
  * <ul>
- *   <li>Something is better than nothing - basic functionality continues</li>
- *   <li>Conservative defaults - prefer safe actions (wait) over risky ones</li>
- *   <li>Transparency - responses indicate they're from fallback system</li>
+ *   <li>Action name lives in {@code "action"}</li>
+ *   <li>All action arguments MUST be nested inside a {@code "parameters"} object</li>
+ *   <li>Only actions registered in {@code ActionExecutor} / {@code TaskPlanner} are valid:
+ *       {@code mine, place, craft, attack, follow, gather, build, pathfind}</li>
  * </ul>
- *
- * <p><b>Supported Patterns:</b></p>
- * <ul>
- *   <li><b>mine:</b> Matches "mine", "dig", "collect ore"</li>
- *   <li><b>build:</b> Matches "build", "construct", "create house"</li>
- *   <li><b>attack:</b> Matches "attack", "fight", "kill"</li>
- *   <li><b>follow:</b> Matches "follow", "come", "follow me"</li>
- *   <li><b>move:</b> Matches "go to", "move to", "walk"</li>
- *   <li><b>default:</b> Matches nothing - returns "wait" action</li>
- * </ul>
+ * <p>An empty {@code "tasks"} array is valid and means "do nothing" (Steve keeps idling).</p>
  *
  * @since 1.1.0
  */
@@ -45,62 +41,81 @@ public class LLMFallbackHandler {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(LLMFallbackHandler.class);
 
-    // Pattern-based fallback responses in JSON format matching ResponseParser expectations
-    private static final Map<Pattern, String> PATTERN_RESPONSES = Map.of(
-        // Mining patterns
-        Pattern.compile("(?i).*(mine|dig|collect|gather|ore|diamond|iron|coal|stone).*"),
-        "{\"thoughts\":\"[Fallback] Mining action detected\",\"tasks\":[{\"action\":\"mine\",\"target\":\"iron_ore\",\"quantity\":10}]}",
+    // Pattern-based fallback responses in JSON format matching ResponseParser expectations.
+    // NOTE: parameters MUST be nested under "parameters", and only registered actions are used.
+    private static final Map<Pattern, String> PATTERN_RESPONSES = new LinkedHashMap<>();
 
-        // Building patterns
-        Pattern.compile("(?i).*(build|construct|create|make).*(house|home|shelter|structure|base).*"),
-        "{\"thoughts\":\"[Fallback] Building action detected\",\"tasks\":[{\"action\":\"build\",\"structure\":\"house\",\"size\":\"small\"}]}",
+    static {
+        // Greeting patterns - should respond with a friendly chat message
+        register("(?i)^(hi|hello|hey|你好|嗨|嘿)\\b.*",
+            "{\"reasoning\":\"[Fallback] Greeting detected\",\"plan\":\"Respond to greeting\",\"tasks\":[{\"action\":\"say\",\"parameters\":{\"message\":\"Hello! How can I help you?\"}}]}");
+        register("(?i).*(你好|您好|早上好|晚上好|下午好).*",
+            "{\"reasoning\":\"[Fallback] Greeting detected (zh)\",\"plan\":\"Respond to greeting\",\"tasks\":[{\"action\":\"say\",\"parameters\":{\"message\":\"你好！有什么可以帮你的吗？\"}}]}");
 
-        // Combat patterns
-        Pattern.compile("(?i).*(attack|fight|kill|destroy|hostile|monster|zombie|skeleton|creeper).*"),
-        "{\"thoughts\":\"[Fallback] Combat action detected\",\"tasks\":[{\"action\":\"attack\",\"target\":\"nearest_hostile\"}]}",
+        // Mining patterns (English + Chinese) - more specific to avoid false matches
+        register("(?i)\\b(mine|dig|get me|find|collect).*(diamond|iron|coal|gold|copper|redstone|emerald|ore)\\b.*",
+            "{\"reasoning\":\"[Fallback] Mining detected\",\"plan\":\"Mine ore\",\"tasks\":[{\"action\":\"mine\",\"parameters\":{\"block\":\"iron\",\"quantity\":16}}]}");
+        register("(?i).*(挖矿|采矿|挖煤|挖铁|挖金|找钻石|找铁矿|采集矿物).*",
+            "{\"reasoning\":\"[Fallback] Mining detected (zh)\",\"plan\":\"Mine ore\",\"tasks\":[{\"action\":\"mine\",\"parameters\":{\"block\":\"iron\",\"quantity\":16}}]}");
 
-        // Follow patterns
-        Pattern.compile("(?i).*(follow|come|here|with me|accompany).*"),
-        "{\"thoughts\":\"[Fallback] Follow action detected\",\"tasks\":[{\"action\":\"follow\",\"target\":\"player\"}]}",
+        // Building patterns (English + Chinese)
+        register("(?i)\\b(build|construct|create|make).*(house|home|shelter|structure|base|castle|tower|barn)\\b.*",
+            "{\"reasoning\":\"[Fallback] Building detected\",\"plan\":\"Build structure\",\"tasks\":[{\"action\":\"build\",\"parameters\":{\"structure\":\"house\",\"blocks\":[\"oak_planks\",\"cobblestone\",\"glass_pane\"],\"dimensions\":[9,6,9]}}]}");
+        register("(?i).*(建造|盖房|造房子|搭建|建个).*(房子|屋子|城堡|塔|仓库|基地|家).*",
+            "{\"reasoning\":\"[Fallback] Building detected (zh)\",\"plan\":\"Build structure\",\"tasks\":[{\"action\":\"build\",\"parameters\":{\"structure\":\"house\",\"blocks\":[\"oak_planks\",\"cobblestone\",\"glass_pane\"],\"dimensions\":[9,6,9]}}]}");
 
-        // Movement patterns
-        Pattern.compile("(?i).*(go to|move to|walk to|travel|path|navigate).*"),
-        "{\"thoughts\":\"[Fallback] Movement action detected\",\"tasks\":[{\"action\":\"pathfind\",\"target\":\"player\"}]}",
+        // Combat patterns (English + Chinese)
+        register("(?i)\\b(attack|fight|kill|destroy).*(mob|hostile|monster|zombie|skeleton|creeper|spider)\\b.*",
+            "{\"reasoning\":\"[Fallback] Combat detected\",\"plan\":\"Attack hostiles\",\"tasks\":[{\"action\":\"attack\",\"parameters\":{\"target\":\"hostile\"}}]}");
+        register("(?i).*(攻击|打怪|击杀|杀死|干掉|清理).*(怪物|僵尸|骷髅|苦力怕|蜘蛛).*",
+            "{\"reasoning\":\"[Fallback] Combat detected (zh)\",\"plan\":\"Attack hostiles\",\"tasks\":[{\"action\":\"attack\",\"parameters\":{\"target\":\"hostile\"}}]}");
 
-        // Placement patterns
-        Pattern.compile("(?i).*(place|put|set).*(block|torch|door).*"),
-        "{\"thoughts\":\"[Fallback] Placement action detected\",\"tasks\":[{\"action\":\"place_block\",\"block\":\"torch\",\"position\":\"here\"}]}",
+        // Follow patterns (English + Chinese)
+        register("(?i)\\b(follow|come here|come with|stay with)\\b.*",
+            "{\"reasoning\":\"[Fallback] Follow detected\",\"plan\":\"Follow player\",\"tasks\":[{\"action\":\"follow\",\"parameters\":{\"player\":\"USE_NEARBY_PLAYER_NAME\"}}]}");
+        register("(?i).*(跟随|跟着我|过来|跟我走|别走开).*",
+            "{\"reasoning\":\"[Fallback] Follow detected (zh)\",\"plan\":\"Follow player\",\"tasks\":[{\"action\":\"follow\",\"parameters\":{\"player\":\"USE_NEARBY_PLAYER_NAME\"}}]}");
 
-        // Stop patterns
-        Pattern.compile("(?i).*(stop|halt|cancel|wait|pause|stay).*"),
-        "{\"thoughts\":\"[Fallback] Stop action detected\",\"tasks\":[{\"action\":\"wait\",\"duration\":5}]}"
-    );
+        // Gathering patterns
+        register("(?i)\\b(gather|chop|get|collect).*(wood|log|tree|oak|birch|spruce)\\b.*",
+            "{\"reasoning\":\"[Fallback] Gathering detected\",\"plan\":\"Gather wood\",\"tasks\":[{\"action\":\"gather\",\"parameters\":{\"resource\":\"wood\",\"quantity\":32}}]}");
+        register("(?i).*(砍树|砍木头|收集木头|采集树木|伐木).*",
+            "{\"reasoning\":\"[Fallback] Gathering detected (zh)\",\"plan\":\"Gather wood\",\"tasks\":[{\"action\":\"gather\",\"parameters\":{\"resource\":\"wood\",\"quantity\":32}}]}");
+    }
 
-    // Default response when no pattern matches
+    private static void register(String regex, String response) {
+        PATTERN_RESPONSES.put(Pattern.compile(regex), response);
+    }
+
+    /**
+     * Default response when no pattern matches.
+     *
+     * <p>Returns an EMPTY task list on purpose. The legacy fallback used an
+     * undocumented "wait" action, which is not registered in the action system,
+     * so it produced a confusing "Unknown action type: wait" error and did nothing.
+     * An empty task list is a clean no-op: the Steve simply stays idle.</p>
+     */
     private static final String DEFAULT_RESPONSE =
-        "{\"thoughts\":\"[Fallback] No pattern matched, waiting\",\"tasks\":[{\"action\":\"wait\",\"duration\":5}]}";
+        "{\"reasoning\":\"[Fallback] No pattern matched; no-op\",\"plan\":\"No action\",\"tasks\":[]}";
 
     /**
      * Generates a fallback response based on pattern matching.
      *
-     * <p>Analyzes the prompt text to identify the user's intent and returns
-     * a pre-configured action response. If no pattern matches, returns a
-     * safe "wait" action.</p>
-     *
      * @param prompt Original prompt that failed
      * @param error  The error that triggered the fallback (for logging)
-     * @return LLMResponse containing pattern-matched action or default wait action
+     * @return LLMResponse containing pattern-matched action or a safe no-op
      */
     public LLMResponse generateFallback(String prompt, Throwable error) {
         LOGGER.warn("Generating fallback response for prompt: '{}' (error: {})",
             truncatePrompt(prompt, 50),
             error != null ? error.getClass().getSimpleName() + ": " + error.getMessage() : "unknown");
 
-        // Try to match against known patterns
         String responseContent = matchPattern(prompt);
         String matchedPattern = responseContent.equals(DEFAULT_RESPONSE) ? "default" : "pattern-match";
 
-        LOGGER.info("Fallback response generated (matched: {})", matchedPattern);
+        LOGGER.warn("Fallback response generated (matched: {}). " +
+            "This is rule-based, NOT a real LLM reply. Check your API key / network if this happens often.",
+            matchedPattern);
 
         return LLMResponse.builder()
             .content(responseContent)
@@ -112,12 +127,6 @@ public class LLMFallbackHandler {
             .build();
     }
 
-    /**
-     * Matches the prompt against known patterns.
-     *
-     * @param prompt The prompt to analyze
-     * @return Matching response JSON or default response
-     */
     private String matchPattern(String prompt) {
         if (prompt == null || prompt.isEmpty()) {
             return DEFAULT_RESPONSE;
@@ -126,23 +135,16 @@ public class LLMFallbackHandler {
         String lowerPrompt = prompt.toLowerCase();
 
         for (Map.Entry<Pattern, String> entry : PATTERN_RESPONSES.entrySet()) {
-            if (entry.getKey().matcher(lowerPrompt).matches()) {
+            if (entry.getKey().matcher(lowerPrompt).find()) {
                 LOGGER.debug("Matched pattern: {}", entry.getKey().pattern());
                 return entry.getValue();
             }
         }
 
-        LOGGER.debug("No pattern matched, using default response");
+        LOGGER.debug("No pattern matched, using default no-op response");
         return DEFAULT_RESPONSE;
     }
 
-    /**
-     * Truncates a prompt for logging purposes.
-     *
-     * @param prompt Prompt to truncate
-     * @param maxLength Maximum length
-     * @return Truncated prompt with "..." if needed
-     */
     private String truncatePrompt(String prompt, int maxLength) {
         if (prompt == null) {
             return "[null]";
@@ -156,8 +158,6 @@ public class LLMFallbackHandler {
     /**
      * Checks if a prompt would match any known pattern.
      *
-     * <p>Useful for testing and debugging.</p>
-     *
      * @param prompt The prompt to check
      * @return true if a pattern matches, false if would use default
      */
@@ -168,7 +168,7 @@ public class LLMFallbackHandler {
 
         String lowerPrompt = prompt.toLowerCase();
         return PATTERN_RESPONSES.keySet().stream()
-            .anyMatch(pattern -> pattern.matcher(lowerPrompt).matches());
+            .anyMatch(pattern -> pattern.matcher(lowerPrompt).find());
     }
 
     /**

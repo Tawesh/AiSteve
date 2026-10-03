@@ -33,9 +33,16 @@ public class BuildStructureAction extends BaseAction {
     private int ticksRunning;
     private CollaborativeBuildManager.CollaborativeBuild collaborativeBuild; // For multi-Steve collaboration
     private boolean isCollaborative;
-    private static final int MAX_TICKS = 120000;
+
+
+    private static final int MAX_TICKS = 12000;             // 10 minutes
+    /** Abort when no block has been placed for this long (30 s). */
+    private static final int NO_PROGRESS_LIMIT = 600;
     private static final int BLOCKS_PER_TICK = 1;
     private static final double BUILD_SPEED_MULTIPLIER = 1.5;
+
+    private int ticksSinceProgress;
+
 
     public BuildStructureAction(SteveEntity steve, Task task) {
         super(steve, task);
@@ -46,6 +53,7 @@ public class BuildStructureAction extends BaseAction {
         structureType = task.getStringParameter("structure").toLowerCase();
         currentBlockIndex = 0;
         ticksRunning = 0;
+        ticksSinceProgress = 0;
         collaborativeBuild = CollaborativeBuildManager.findActiveBuild(structureType);
         if (collaborativeBuild != null) {
             isCollaborative = true;
@@ -145,7 +153,8 @@ public class BuildStructureAction extends BaseAction {
         buildPlan = tryLoadFromTemplate(structureType, clearPos);
         
         if (buildPlan == null) {
-            // Fall back to procedural generation            buildPlan = generateBuildPlan(structureType, clearPos, width, height, depth);
+            // Fall back to procedural generation
+            buildPlan = generateBuildPlan(structureType, clearPos, width, height, depth);
         } else {
             SteveMod.LOGGER.info("Loaded '{}' from NBT template with {} blocks", structureType, buildPlan.size());
         }
@@ -190,6 +199,18 @@ public class BuildStructureAction extends BaseAction {
             result = ActionResult.failure("Building timeout");
             return;
         }
+
+        // Stall detection: a build that stops making progress must not spin forever
+        // (mirrors the guard used by the collecting action).
+        ticksSinceProgress++;
+        if (ticksSinceProgress > NO_PROGRESS_LIMIT) {
+            steve.setFlying(false);
+            result = ActionResult.failure(
+                "Building stalled - no more blocks could be placed ("
+                    + collaborativeBuild.getProgressPercentage() + "% done)");
+            return;
+        }
+
         
         if (isCollaborative && collaborativeBuild != null) {
             if (collaborativeBuild.isComplete()) {
@@ -226,6 +247,7 @@ public class BuildStructureAction extends BaseAction {
                 
                 BlockState blockState = placement.block.defaultBlockState();
                 steve.level().setBlock(pos, blockState, 3);
+                ticksSinceProgress = 0;   // progress made
                 
                 SteveMod.LOGGER.info("Steve '{}' PLACED BLOCK at {} - Total: {}/{}", 
                     steve.getSteveName(), pos, collaborativeBuild.getBlocksPlaced(), 
@@ -264,7 +286,14 @@ public class BuildStructureAction extends BaseAction {
     protected void onCancel() {
         steve.setFlying(false); // Disable flying when cancelled
         steve.getNavigation().stop();
+
+        // Leave the collaborative project so an abandoned build does not linger
+        // in the registry (otherwise the next build command would "join" it).
+        if (isCollaborative && collaborativeBuild != null) {
+            CollaborativeBuildManager.leaveBuild(collaborativeBuild, steve.getSteveName());
+        }
     }
+
 
     @Override
     public String getDescription() {

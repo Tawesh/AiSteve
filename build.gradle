@@ -9,7 +9,7 @@ version = '1.0.0'
 group = 'com.steve.ai'
 
 base {
-    archivesName = 'steve-ai-mod'
+    archivesName = 'aisteve'
 }
 
 java.toolchain.languageVersion = JavaLanguageVersion.of(17)
@@ -24,7 +24,7 @@ minecraft {
             property 'forge.logging.console.level', 'debug'
 
             mods {
-                steve {
+                aisteve {
                     source sourceSets.main
                 }
             }
@@ -36,7 +36,7 @@ minecraft {
             property 'forge.logging.console.level', 'debug'
 
             mods {
-                steve {
+                aisteve {
                     source sourceSets.main
                 }
             }
@@ -84,16 +84,87 @@ test {
 tasks.named('jar', Jar).configure {
     manifest {
         attributes([
-            'Specification-Title': 'Steve AI Mod',
-            'Specification-Vendor': 'Steve AI',
+            'Specification-Title': 'AiSteve',
+            'Specification-Vendor': 'AiSteve',
             'Specification-Version': '1',
             'Implementation-Title': project.name,
             'Implementation-Version': project.jar.archiveVersion,
-            'Implementation-Vendor': 'Steve AI'
+            'Implementation-Vendor': 'AiSteve'
         ])
     }
 
     finalizedBy 'reobfJar'
+}
+
+// ---------------------------------------------------------------------------
+// Distributable "fat" jar.
+//
+// The default `jar` / `reobfJar` output only contains the mod's own classes.
+// The mod's runtime dependencies (resilience4j, caffeine)
+// are NOT bundled, so installing that plain jar into Minecraft fails at runtime
+// with NoClassDefFoundError as soon as a Steve is asked to plan a task.
+//
+// `fatJar` merges the reobfuscated mod classes with those libraries into a
+// single installable jar (aisteve-<version>-all.jar).
+//
+// Notes:
+//  - GraalVM (org.graalvm.polyglot) is intentionally NOT bundled: CodeExecutionEngine
+//    is never instantiated in this codebase, and bundling the JS engine is large and
+//    conflicts with other mods that ship GraalVM.
+//  - Minecraft/Forge jars are never bundled.
+// ---------------------------------------------------------------------------
+// Libraries that are ALREADY provided by Minecraft / Forge must NOT be bundled:
+//  - commons-codec: shipped with Forge (1.20.1 -> 1.15). Bundling it causes
+//      java.lang.module.ResolutionException: Modules steve and org.apache.commons.codec
+//      export package org.apache.commons.codec.language to module minecraft
+//    and the game crashes on startup. The mod uses Forge's copy at runtime.
+// Only bundle libraries that Forge does NOT provide.
+def bundledLibPrefixes = ['resilience4j-', 'caffeine-']
+
+tasks.register('fatJar', Jar) {
+    group = 'build'
+    description = 'Builds an installable mod jar with the required runtime libraries bundled.'
+
+    // reobfJar rewrites build/libs/aisteve-<version>.jar in place, so the
+    // packing must happen after reobfuscation.
+    dependsOn tasks.named('reobfJar')
+
+    archiveClassifier.set('all')
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
+    manifest {
+        attributes([
+            'Specification-Title': 'AiSteve',
+            'Specification-Vendor': 'AiSteve',
+            'Specification-Version': '1',
+            'Implementation-Title': project.name,
+            'Implementation-Version': project.version,
+            'Implementation-Vendor': 'AiSteve'
+        ])
+    }
+
+    // 1) Reobfuscated mod classes + resources
+    from({ zipTree(tasks.named('jar').get().archiveFile.get().asFile) })
+
+    // 2) Bundled runtime libraries
+    from({
+        configurations.runtimeClasspath.findAll { f ->
+            f.name.endsWith('.jar') && bundledLibPrefixes.any { prefix -> f.name.startsWith(prefix) }
+        }.collect { zipTree(it) }
+    }) {
+        exclude 'META-INF/MANIFEST.MF'
+        exclude 'META-INF/*.SF'
+        exclude 'META-INF/*.DSA'
+        exclude 'META-INF/*.RSA'
+        exclude '**/module-info.class'
+        // Defensive: never ship packages that Minecraft/Forge already provide,
+        // otherwise the JPMS module layer fails with ResolutionException.
+        exclude 'org/apache/commons/codec/**'
+    }
+}
+
+tasks.named('assemble') {
+    dependsOn tasks.named('fatJar')
 }
 
 publishing {

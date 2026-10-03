@@ -163,17 +163,27 @@ public class CollaborativeBuildManager {
     /**
      * Register a new collaborative build project
      */
-    public static CollaborativeBuild registerBuild(String structureType, List<BlockPlacement> buildPlan, BlockPos startPos) {
+    public static synchronized CollaborativeBuild registerBuild(String structureType, List<BlockPlacement> buildPlan, BlockPos startPos) {
+        // Guard against two Steves registering the same structure within the same tick.
+        // Without this they would each create their own project and build the same
+        // structure independently, overwriting each other block by block.
+        CollaborativeBuild existing = findActiveBuild(structureType);
+        if (existing != null) {
+            SteveMod.LOGGER.info("Reusing existing collaborative build '{}' instead of creating a duplicate",
+                existing.structureId);
+            return existing;
+        }
+
         String structureId = structureType + "_" + System.currentTimeMillis();
         CollaborativeBuild build = new CollaborativeBuild(structureId, buildPlan, startPos);
         activeBuilds.put(structureId, build);
-        
+
         SteveMod.LOGGER.info("Registered collaborative build '{}' at {} with {} blocks", 
             structureType, startPos, buildPlan.size());
-        
+
         return build;
     }
-    
+
     /**
      * Get the next block for a Steve to place (each Steve works on their own section)
      * Returns null if Steve's section is complete
@@ -182,9 +192,9 @@ public class CollaborativeBuildManager {
         if (build.isComplete()) {
             return null;
         }
-        
+
         build.participatingSteves.add(steveName);
-        
+
         // Assign Steve to a section if not already assigned
         Integer sectionIndex = build.steveToSectionMap.get(steveName);
         if (sectionIndex == null) {
@@ -194,20 +204,44 @@ public class CollaborativeBuildManager {
                 return null;
             }
         }
-        
+
+        // 1) Preferred: keep working on this Steve's own quadrant
         BuildSection section = build.sections.get(sectionIndex);
         BlockPlacement block = section.getNextBlock();
-        
-        if (block == null) {
-            if (sectionIndex != null) {
-                section = build.sections.get(sectionIndex);
-                block = section.getNextBlock();
-                if (block != null) {                }
+        if (block != null) {
+            return block;
+        }
+
+        // 2) This Steve's quadrant is finished -> take over ANY other incomplete quadrant.
+        //
+        //    This is ESSENTIAL when there are fewer Steves than quadrants.
+        //    Example: a single Steve starting a build only gets assigned to the NW
+        //    quadrant, so without this step the other 3 quadrants (75% of the
+        //    structure!) would never be built and the house would stay incomplete.
+        //
+        //    The previous implementation simply re-read the SAME finished section
+        //    and therefore always returned null here, leaving the structure stuck
+        //    at 1/4 forever.
+        for (int i = 0; i < build.sections.size(); i++) {
+            BuildSection candidate = build.sections.get(i);
+            if (candidate.isComplete()) {
+                continue;
+            }
+            BlockPlacement next = candidate.getNextBlock();
+            if (next != null) {
+                build.steveToSectionMap.put(steveName, i);
+                SteveMod.LOGGER.info(
+                    "Steve '{}' finished their quadrant - now helping {} ({} blocks left, {}% complete)",
+                    steveName, candidate.sectionName,
+                    candidate.getTotalBlocks() - candidate.getBlocksPlaced(),
+                    build.getProgressPercentage());
+                return next;
             }
         }
-        
-        return block;
+
+        return null;
     }
+
     
     /**
      * Assign a Steve to a section (quadrant) that needs work
@@ -262,6 +296,34 @@ public class CollaborativeBuildManager {
                 structureId, build.participatingSteves.size());
         }
     }
+
+    /**
+     * Removes a Steve from a collaborative build when its action is cancelled.
+     *
+     * <p>If no Steves remain on the project it is dropped from the active registry.
+     * Without this, an abandoned build would linger forever and the next build command
+     * would silently "join" a dead project instead of starting a fresh one.</p>
+     *
+     * @param build     The build to leave (may be null)
+     * @param steveName Name of the Steve that is leaving
+     */
+    public static void leaveBuild(CollaborativeBuild build, String steveName) {
+        if (build == null) {
+            return;
+        }
+        build.participatingSteves.remove(steveName);
+        build.steveToSectionMap.remove(steveName);
+
+        if (build.participatingSteves.isEmpty()) {
+            activeBuilds.remove(build.structureId);
+            SteveMod.LOGGER.info("Removed abandoned collaborative build '{}' (no Steves left)",
+                build.structureId);
+        } else {
+            SteveMod.LOGGER.info("Steve '{}' left build '{}' ({} Steve(s) still working)",
+                steveName, build.structureId, build.participatingSteves.size());
+        }
+    }
+
     
     /**
      * Check if there's an active build of a structure type

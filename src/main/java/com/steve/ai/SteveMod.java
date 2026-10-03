@@ -1,10 +1,12 @@
 package com.steve.ai;
 
 import com.mojang.logging.LogUtils;
-import com.steve.ai.command.SteveCommands;
+import com.steve.ai.command.AsCommands;
 import com.steve.ai.config.SteveConfig;
 import com.steve.ai.entity.SteveEntity;
 import com.steve.ai.entity.SteveManager;
+import com.steve.ai.plugin.ActionRegistry;
+import com.steve.ai.plugin.PluginManager;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.MobCategory;
 import net.minecraftforge.common.MinecraftForge;
@@ -24,7 +26,8 @@ import org.slf4j.Logger;
 
 @Mod(SteveMod.MODID)
 public class SteveMod {
-    public static final String MODID = "steve";
+    /** Forge mod id. Also determines the config file name (aisteve-common.toml). */
+    public static final String MODID = "aisteve";
     public static final Logger LOGGER = LogUtils.getLogger();
 
     public static final DeferredRegister<EntityType<?>> ENTITIES = 
@@ -49,24 +52,40 @@ public class SteveMod {
         modEventBus.addListener(this::entityAttributes);
 
         MinecraftForge.EVENT_BUS.register(this);
-        
-        if (net.minecraftforge.fml.loading.FMLEnvironment.dist.isClient()) {
-            MinecraftForge.EVENT_BUS.register(com.steve.ai.client.SteveGUI.class);        }
-        
+
         steveManager = new SteveManager();
     }
 
-    private void commonSetup(final FMLCommonSetupEvent event) {    }
+    private void commonSetup(final FMLCommonSetupEvent event) {
+        // Discover and load the built-in action plugins (mine, place, use_item, pickup,
+        // give, say, ...) via SPI. Previously this was never invoked, so every action
+        // silently fell back to the legacy switch; wiring it up keeps the plugin
+        // architecture authoritative.
+        event.enqueueWork(() -> {
+            PluginManager.getInstance().loadPlugins(
+                ActionRegistry.getInstance(),
+                new com.steve.ai.di.SimpleServiceContainer());
+
+            // Initialize action capabilities configuration
+            com.steve.ai.config.ActionCapabilities.load();
+            LOGGER.info("Action capabilities system initialized");
+
+            // Cache the behaviour settings so per-tick code never touches the config spec,
+            // and so editing them in the settings GUI takes effect without a restart.
+            com.steve.ai.config.RuntimeSettings.refresh();
+        });
+    }
 
     private void entityAttributes(EntityAttributeCreationEvent event) {
         event.put(STEVE_ENTITY.get(), SteveEntity.createAttributes().build());
     }
 
     @SubscribeEvent
-    public void onCommandRegister(RegisterCommandsEvent event) {        SteveCommands.register(event.getDispatcher());    }
+    public void onCommandRegister(RegisterCommandsEvent event) {
+        AsCommands.register(event.getDispatcher());
+    }
 
     public static SteveManager getSteveManager() {
         return steveManager;
     }
 }
-

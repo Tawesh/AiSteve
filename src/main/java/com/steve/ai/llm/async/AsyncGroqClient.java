@@ -65,7 +65,7 @@ public class AsyncGroqClient implements AsyncLLMClient {
      */
     public AsyncGroqClient(String apiKey, String model, int maxTokens, double temperature) {
         if (apiKey == null || apiKey.isEmpty()) {
-            throw new IllegalArgumentException("Groq API key cannot be null or empty");
+            LOGGER.warn("AsyncGroqClient created without an API key; requests will fail until [openai].apiKey is configured.");
         }
 
         this.apiKey = apiKey;

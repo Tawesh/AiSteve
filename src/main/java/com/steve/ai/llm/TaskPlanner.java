@@ -3,11 +3,14 @@ package com.steve.ai.llm;
 import com.steve.ai.SteveMod;
 import com.steve.ai.action.Task;
 import com.steve.ai.config.SteveConfig;
+import com.steve.ai.context.EnvironmentScanner;
+import com.steve.ai.context.WorldContext;
 import com.steve.ai.entity.SteveEntity;
 import com.steve.ai.llm.async.*;
 import com.steve.ai.llm.resilience.LLMFallbackHandler;
 import com.steve.ai.llm.resilience.ResilientLLMClient;
 import com.steve.ai.memory.WorldKnowledge;
+import com.steve.ai.protocol.AgentDecision;
 
 import java.util.List;
 import java.util.Map;
@@ -18,11 +21,13 @@ public class TaskPlanner {
     private final OpenAIClient openAIClient;
     private final GeminiClient geminiClient;
     private final GroqClient groqClient;
+    private final DeepSeekClient deepSeekClient;
 
     // NEW: Async resilient clients
     private final AsyncLLMClient asyncOpenAIClient;
     private final AsyncLLMClient asyncGroqClient;
     private final AsyncLLMClient asyncGeminiClient;
+    private final AsyncLLMClient asyncDeepSeekClient;
     private final LLMCache llmCache;
     private final LLMFallbackHandler fallbackHandler;
 
@@ -31,6 +36,7 @@ public class TaskPlanner {
         this.openAIClient = new OpenAIClient();
         this.geminiClient = new GeminiClient();
         this.groqClient = new GroqClient();
+        this.deepSeekClient = new DeepSeekClient();
 
         // Initialize async infrastructure
         this.llmCache = new LLMCache();
@@ -46,11 +52,19 @@ public class TaskPlanner {
         AsyncLLMClient baseOpenAI = new AsyncOpenAIClient(apiKey, model, maxTokens, temperature);
         AsyncLLMClient baseGroq = new AsyncGroqClient(apiKey, "llama-3.1-8b-instant", 500, temperature);
         AsyncLLMClient baseGemini = new AsyncGeminiClient(apiKey, "gemini-1.5-flash", maxTokens, temperature);
+        String deepSeekKey = SteveConfig.DEEPSEEK_API_KEY.get();
+        if (deepSeekKey == null || deepSeekKey.isEmpty()) {
+            deepSeekKey = apiKey;
+        }
+        AsyncLLMClient baseDeepSeek = new AsyncDeepSeekClient(
+            deepSeekKey, SteveConfig.DEEPSEEK_MODEL.get(), maxTokens, temperature,
+            SteveConfig.DEEPSEEK_BASE_URL.get());
 
         // Wrap with resilience patterns
         this.asyncOpenAIClient = new ResilientLLMClient(baseOpenAI, llmCache, fallbackHandler);
         this.asyncGroqClient = new ResilientLLMClient(baseGroq, llmCache, fallbackHandler);
         this.asyncGeminiClient = new ResilientLLMClient(baseGemini, llmCache, fallbackHandler);
+        this.asyncDeepSeekClient = new ResilientLLMClient(baseDeepSeek, llmCache, fallbackHandler);
 
         SteveMod.LOGGER.info("TaskPlanner initialized with async resilient clients");
     }
@@ -58,31 +72,92 @@ public class TaskPlanner {
     public ResponseParser.ParsedResponse planTasks(SteveEntity steve, String command) {
         try {
             String systemPrompt = PromptBuilder.buildSystemPrompt();
-            WorldKnowledge worldKnowledge = new WorldKnowledge(steve);
-            String userPrompt = PromptBuilder.buildUserPrompt(steve, command, worldKnowledge);
-            
+
+            // NEW: Use environment scanner for structured context
+            WorldContext worldContext = EnvironmentScanner.scan(steve);
+            String userPrompt = PromptBuilder.buildUserPrompt(steve, command, worldContext);
+
             String provider = SteveConfig.AI_PROVIDER.get().toLowerCase();
             SteveMod.LOGGER.info("Requesting AI plan for Steve '{}' using {}: {}", steve.getSteveName(), provider, command);
-            
+
             String response = getAIResponse(provider, systemPrompt, userPrompt);
-            
+
             if (response == null) {
                 SteveMod.LOGGER.error("Failed to get AI response for command: {}", command);
                 return null;
-            }            ResponseParser.ParsedResponse parsedResponse = ResponseParser.parseAIResponse(response);
-            
+            }
+
+            ResponseParser.ParsedResponse parsedResponse = ResponseParser.parseAIResponse(response);
+
             if (parsedResponse == null) {
                 SteveMod.LOGGER.error("Failed to parse AI response");
                 return null;
             }
-            
+
             SteveMod.LOGGER.info("Plan: {} ({} tasks)", parsedResponse.getPlan(), parsedResponse.getTasks().size());
-            
+
             return parsedResponse;
-            
+
         } catch (Exception e) {
             SteveMod.LOGGER.error("Error planning tasks", e);
             return null;
+        }
+    }
+
+    /**
+     * Asks the model for an {@link AgentDecision} using the layered agent prompt.
+     *
+     * <p>This is the new entry point used by {@code AgentLoop}. It reuses the exact same
+     * provider selection, caching, circuit breaker and fallback stack as the legacy
+     * {@link #planTasksAsync} path - only the prompt contract and the response shape differ.</p>
+     *
+     * @param systemPrompt output of {@code AgentPromptBuilder.buildSystemPrompt}
+     * @param userPrompt   output of {@code AgentPromptBuilder.buildUserPrompt}
+     * @return a future that completes with the parsed decision, or {@code null} on any failure
+     */
+    public CompletableFuture<AgentDecision> decideAsync(String systemPrompt, String userPrompt) {
+        try {
+            String provider = SteveConfig.AI_PROVIDER.get().toLowerCase();
+            warnIfApiKeyMissing(provider);
+
+            String model = provider.equals("deepseek")
+                ? SteveConfig.DEEPSEEK_MODEL.get()
+                : SteveConfig.OPENAI_MODEL.get();
+
+            Map<String, Object> params = Map.of(
+                "systemPrompt", systemPrompt,
+                "model", model,
+                "maxTokens", SteveConfig.MAX_TOKENS.get(),
+                "temperature", SteveConfig.TEMPERATURE.get()
+            );
+
+            AsyncLLMClient client = getAsyncClient(provider);
+
+            return client.sendAsync(userPrompt, params)
+                .thenApply(response -> {
+                    if (response == null || response.getContent() == null
+                        || response.getContent().isEmpty()) {
+                        SteveMod.LOGGER.error("[Agent] LLM 返回为空");
+                        return null;
+                    }
+                    AgentDecision decision = AgentDecisionParser.parse(response.getContent());
+                    if (decision == null) {
+                        SteveMod.LOGGER.error("[Agent] 决策解析失败");
+                        return null;
+                    }
+                    SteveMod.LOGGER.info("[Agent] 决策: {} ({}ms, {} tokens, cache: {})",
+                        decision, response.getLatencyMs(), response.getTokensUsed(),
+                        response.isFromCache());
+                    return decision;
+                })
+                .exceptionally(throwable -> {
+                    SteveMod.LOGGER.error("[Agent] 决策请求失败: {}", throwable.getMessage());
+                    return null;
+                });
+
+        } catch (Exception e) {
+            SteveMod.LOGGER.error("[Agent] 决策初始化失败", e);
+            return CompletableFuture.completedFuture(null);
         }
     }
 
@@ -91,6 +166,7 @@ public class TaskPlanner {
             case "groq" -> groqClient.sendRequest(systemPrompt, userPrompt);
             case "gemini" -> geminiClient.sendRequest(systemPrompt, userPrompt);
             case "openai" -> openAIClient.sendRequest(systemPrompt, userPrompt);
+            case "deepseek" -> deepSeekClient.sendRequest(systemPrompt, userPrompt);
             default -> {
                 SteveMod.LOGGER.warn("Unknown AI provider '{}', using Groq", provider);
                 yield groqClient.sendRequest(systemPrompt, userPrompt);
@@ -123,17 +199,20 @@ public class TaskPlanner {
     public CompletableFuture<ResponseParser.ParsedResponse> planTasksAsync(SteveEntity steve, String command) {
         try {
             String systemPrompt = PromptBuilder.buildSystemPrompt();
-            WorldKnowledge worldKnowledge = new WorldKnowledge(steve);
-            String userPrompt = PromptBuilder.buildUserPrompt(steve, command, worldKnowledge);
+
+            // NEW: Use environment scanner for structured context
+            WorldContext worldContext = EnvironmentScanner.scan(steve);
+            String userPrompt = PromptBuilder.buildUserPrompt(steve, command, worldContext);
 
             String provider = SteveConfig.AI_PROVIDER.get().toLowerCase();
+            warnIfApiKeyMissing(provider);
             SteveMod.LOGGER.info("[Async] Requesting AI plan for Steve '{}' using {}: {}",
                 steve.getSteveName(), provider, command);
 
             // Build params map
             Map<String, Object> params = Map.of(
                 "systemPrompt", systemPrompt,
-                "model", SteveConfig.OPENAI_MODEL.get(),
+                "model", provider.equals("deepseek") ? SteveConfig.DEEPSEEK_MODEL.get() : SteveConfig.OPENAI_MODEL.get(),
                 "maxTokens", SteveConfig.MAX_TOKENS.get(),
                 "temperature", SteveConfig.TEMPERATURE.get()
             );
@@ -175,11 +254,49 @@ public class TaskPlanner {
             return CompletableFuture.completedFuture(null);
         }
     }
+    /**
+     * Logs an explicit, actionable error when the selected provider has no API key.
+     *
+     * <p>Without this, a missing key only surfaces as an opaque HTTP 403/401 followed by a
+     * rule-based fallback, which looks like "the Steve just ignores my commands".</p>
+     *
+     * @param provider Selected provider id (lowercase)
+     */
+    private void warnIfApiKeyMissing(String provider) {
+        if (hasApiKeyFor(provider)) {
+            return;
+        }
+        SteveMod.LOGGER.error(
+            "No API key configured for provider '{}'. Set [deepseek].apiKey (or [openai].apiKey) " +
+            "in config/aisteve-common.toml and RESTART the game. " +
+            "Until then, commands will fail and fall back to rule-based no-op responses.",
+            provider);
+    }
+
+    /**
+     * Returns whether an API key is available for the given provider.
+     *
+     * <p>DeepSeek falls back to {@code [openai].apiKey} when {@code [deepseek].apiKey} is empty,
+     * matching the behaviour of the client constructors.</p>
+     *
+     * @param provider Provider id (lowercase)
+     * @return true if a non-empty key is present
+     */
+    private boolean hasApiKeyFor(String provider) {
+        if ("deepseek".equals(provider)) {
+            String deepSeekKey = SteveConfig.DEEPSEEK_API_KEY.get();
+            if (deepSeekKey != null && !deepSeekKey.isEmpty()) {
+                return true;
+            }
+        }
+        String sharedKey = SteveConfig.OPENAI_API_KEY.get();
+        return sharedKey != null && !sharedKey.isEmpty();
+    }
 
     /**
      * Returns the appropriate async client based on provider config.
      *
-     * @param provider Provider name ("openai", "groq", "gemini")
+     * @param provider Provider name ("openai", "groq", "gemini", "deepseek")
      * @return Resilient async client
      */
     private AsyncLLMClient getAsyncClient(String provider) {
@@ -187,6 +304,7 @@ public class TaskPlanner {
             case "openai" -> asyncOpenAIClient;
             case "gemini" -> asyncGeminiClient;
             case "groq" -> asyncGroqClient;
+            case "deepseek" -> asyncDeepSeekClient;
             default -> {
                 SteveMod.LOGGER.warn("[Async] Unknown provider '{}', using Groq", provider);
                 yield asyncGroqClient;
@@ -222,9 +340,15 @@ public class TaskPlanner {
             case "place" -> task.hasParameters("block", "x", "y", "z");
             case "craft" -> task.hasParameters("item", "quantity");
             case "attack" -> task.hasParameters("target");
-            case "follow" -> task.hasParameters("player");
-            case "gather" -> task.hasParameters("resource", "quantity");
             case "build" -> task.hasParameters("structure", "blocks", "dimensions");
+            case "pickup" -> true;                        // item filter is optional
+            case "give" -> task.hasParameters("item");
+            case "use_item" -> task.hasParameters("item");
+            case "say" -> task.hasParameters("message");
+            case "loot_container" -> true;                 // all parameters optional
+            case "explore" -> true;                        // all parameters optional
+            case "fish" -> true;                           // quantity optional
+            case "farm" -> true;                           // quantity optional
             default -> {
                 SteveMod.LOGGER.warn("Unknown action type: {}", action);
                 yield false;
@@ -238,4 +362,5 @@ public class TaskPlanner {
             .toList();
     }
 }
+
 

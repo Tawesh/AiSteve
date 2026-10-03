@@ -70,7 +70,7 @@ public class AsyncGeminiClient implements AsyncLLMClient {
      */
     public AsyncGeminiClient(String apiKey, String model, int maxTokens, double temperature) {
         if (apiKey == null || apiKey.isEmpty()) {
-            throw new IllegalArgumentException("Gemini API key cannot be null or empty");
+            LOGGER.warn("AsyncGeminiClient created without an API key; requests will fail until [openai].apiKey is configured.");
         }
 
         this.apiKey = apiKey;

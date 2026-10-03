@@ -3,27 +3,26 @@ loaderVersion="[47,)"
 license="MIT"
 
 [[mods]]
-modId="steve"
+modId="aisteve"
 version="1.0.0"
-displayName="Steve AI Mod"
+displayName="AiSteve"
 description='''
-AI-controlled Steve entities that can follow natural language commands,
-mine resources, build structures, and behave like real players using OpenAI.
+AI-controlled companion entities that understand natural language: they mine, craft,
+farm, fish, loot villages, build structures and explore the world like real players.
 '''
-authors="Steve AI Team"
-displayURL="https://github.com/yourusername/steve-ai-mod"
+authors="AiSteve Team"
+displayURL="https://github.com/yourusername/aisteve"
 
-[[dependencies.steve]]
+[[dependencies.aisteve]]
     modId="forge"
     mandatory=true
     versionRange="[47,)"
     ordering="NONE"
     side="BOTH"
 
-[[dependencies.steve]]
+[[dependencies.aisteve]]
     modId="minecraft"
     mandatory=true
     versionRange="[1.20.1,1.21)"
     ordering="NONE"
     side="BOTH"
-

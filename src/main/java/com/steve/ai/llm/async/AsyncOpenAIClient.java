@@ -71,7 +71,7 @@ public class AsyncOpenAIClient implements AsyncLLMClient {
      */
     public AsyncOpenAIClient(String apiKey, String model, int maxTokens, double temperature) {
         if (apiKey == null || apiKey.isEmpty()) {
-            throw new IllegalArgumentException("OpenAI API key cannot be null or empty");
+            LOGGER.warn("AsyncOpenAIClient created without an API key; requests will fail until [openai].apiKey is configured.");
         }
 
         this.apiKey = apiKey;
