@@ -7,8 +7,12 @@ modId="aisteve"
 version="1.0.0"
 displayName="AiSteve"
 description='''
-AI-controlled companion entities that understand natural language: they mine, craft,
-farm, fish, loot villages, build structures and explore the world like real players.
+An AI companion that actually plays Minecraft with you. It understands natural
+language and mines, crafts, farms, fishes, loots villages, builds and explores
+like a real player. It remembers you, speaks your language, and comes to your
+defence when something attacks you.
+
+Note: this mod supports exactly one companion at a time.
 '''
 authors="AiSteve Team"
 displayURL="https://github.com/yourusername/aisteve"
