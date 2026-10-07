@@ -7,13 +7,18 @@ import com.steve.ai.entity.SteveEntity;
 import com.steve.ai.entity.SteveInventory;
 import com.steve.ai.util.ActionUtils;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
+import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -45,6 +50,13 @@ import java.util.Map;
  *   <li>{@code quantity} - how many to collect (default 8)</li>
  *   <li>{@code deep} (optional) - force underground mode / {@code false} to forbid it</li>
  * </ul>
+ *
+ * <p><b>You can only mine what you can see.</b> A block is destroyed only when the Steve's line
+ * of sight actually reaches it, verified with a vanilla block raycast. When the target is close
+ * but covered - the usual case for an ore sitting a block or two under dirt - the covering block
+ * is mined first, and it does <em>not</em> count towards the requested amount. Without this the
+ * action scanned a box (24 blocks wide, 12 down) straight through the terrain and broke the ore
+ * where it lay, with the drops appearing in the bag: mining "through the mountain".</p>
  */
 public class MineBlockAction extends BaseAction {
 
@@ -58,6 +70,18 @@ public class MineBlockAction extends BaseAction {
     private static final double REACH = 4.5;
     private static final int VERTICAL_REACH = 5;
     private static final int MAX_TREE_BLOCKS = 80;
+
+    /** How far the Steve will dig towards a target it cannot see (blocks). */
+    private static final double DIG_TOWARD_RADIUS = 8.0;
+    /**
+     * Upper bound on raycasts per search.
+     *
+     * <p>A raycast is only cast for candidates that touch open space (a cheap
+     * {@code isAir}/{@code canOcclude} test), so this is a safety net rather than a throttle -
+     * but it keeps a pathological spot (a huge exposed ore vein) from turning one search into
+     * thousands of raycasts.</p>
+     */
+    private static final int MAX_SIGHT_CHECKS = 96;
 
     // --- Underground mining -------------------------------------------------------
     /** How far a branch tunnel extends sideways from the main shaft. */
@@ -133,21 +157,22 @@ public class MineBlockAction extends BaseAction {
         steve.setFlying(false);
         equipBestTool();
 
-        // Surface first: if the target is right there, no reason to dig.
+        // Surface first: if the target is right there (or close enough to dig out of the way),
+        // no reason to start a mineshaft.
         if (findSomethingToCollect()) {
             SteveMod.LOGGER.info("Steve '{}' collecting {} from the surface",
                 steve.getSteveName(), ActionUtils.blockName(targetBlock));
             return;
         }
 
-        // Not visible. Ores live underground, so switch to real mining.
+        // Not reachable from here. Ores live underground, so switch to real mining.
         boolean forceDeep = Boolean.parseBoolean(task.getStringParameter("deep", "false"));
         boolean oreTarget = ORE_DEPTHS.containsKey(ActionUtils.blockName(targetBlock));
 
         if (!forceDeep && !oreTarget) {
             result = ActionResult.failure(
-                "No " + ActionUtils.blockName(targetBlock) + " within " + (int) SEARCH_RADIUS
-                    + " blocks. I need to be closer, or the player should lead me to it.");
+                "附近没有能挖到的 " + ActionUtils.blockName(targetBlock) + "（" + (int) SEARCH_RADIUS
+                    + " 格内都看不见，埋着的也够不着）。换个地方，或者带我过去。");
             return;
         }
 
@@ -201,7 +226,8 @@ public class MineBlockAction extends BaseAction {
                     return;
                 }
                 finish(collectedCount > 0 ? null
-                    : "No " + ActionUtils.blockName(targetBlock) + " left nearby");
+                    : "附近没有能挖到的 " + ActionUtils.blockName(targetBlock)
+                        + "（都被埋着的话得先挖过去）");
                 return;
             }
         }
@@ -211,8 +237,13 @@ public class MineBlockAction extends BaseAction {
             return;
         }
 
-        if (steve.level().getBlockState(next).getBlock() != targetBlock) {
-            pendingBlocks.poll();
+        BlockState queued = steve.level().getBlockState(next);
+        if (queued.isAir()) {
+            pendingBlocks.poll();                       // 已经被别的东西弄掉了
+            return;
+        }
+        if (queued.getBlock() != targetBlock) {
+            pendingBlocks.poll();                       // 被替换了（水流、别人放的…）
             return;
         }
 
@@ -222,12 +253,82 @@ public class MineBlockAction extends BaseAction {
         int dy = Math.abs(stevePos.getY() - next.getY());
         double horizontal = Math.sqrt((double) dx * dx + (double) dz * dz);
 
+        // 【不能隔山打牛】看不见它，就先把挡在中间的那一块挖掉。
+        // 皮肤之下的矿石就是这么处理的：先挖掉上面那层土，再挖煤 —— 和真人一样。
+        if (!canSee(next)) {
+            BlockPos cover = firstBlockInSight(next);
+            if (cover != null && !cover.equals(next) && !cover.equals(stevePos)) {
+                if (withinMiningReach(cover)) {
+                    SteveMod.LOGGER.info("Steve '{}' clearing {} to get at {}",
+                        steve.getSteveName(), ActionUtils.blockName(steve.level().getBlockState(cover).getBlock()),
+                        ActionUtils.blockName(targetBlock));
+                    harvest(cover);                     // 开路挖掉的方块不计入产出
+                } else {
+                    // 够不着挡路的那块：先走到目标那一列，别站着干等
+                    steve.getLookControl().setLookAt(
+                        next.getX() + 0.5, next.getY() + 0.5, next.getZ() + 0.5);
+                    steve.getNavigation().moveTo(
+                        next.getX() + 0.5, stevePos.getY(), next.getZ() + 0.5, 1.1);
+                }
+                return;
+            }
+            // 射线没命中任何方块（例如视线被自己的身体挡住）→ 走下面的常规流程
+        }
+
         if (horizontal > REACH || dy > VERTICAL_REACH) {
             steve.getNavigation().moveTo(next.getX() + 0.5, next.getY(), next.getZ() + 0.5, 1.1);
             return;
         }
 
         harvest(next);
+        pendingBlocks.poll();
+    }
+
+    // ------------------------------------------------------------------
+    // 看得见 / 够得着
+    // ------------------------------------------------------------------
+
+    /**
+     * Is the block actually visible from the Steve's eyes?
+     *
+     * <p>Uses a vanilla block raycast, so the answer is "the first thing my line of sight lands
+     * on is this block" - which is exactly the question a player answers by looking at it. Fluid
+     * is ignored ({@link ClipContext.Fluid#NONE}) because mining under water is perfectly normal.</p>
+     */
+    private boolean canSee(BlockPos pos) {
+        Vec3 eye = steve.getEyePosition(1.0F);
+        Vec3 centre = Vec3.atCenterOf(pos);
+        BlockHitResult hit = steve.level().clip(new ClipContext(eye, centre,
+            ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, steve));
+        return hit.getType() == HitResult.Type.BLOCK && hit.getBlockPos().equals(pos);
+    }
+
+    /** The first block the line of sight lands on towards {@code towards}, or {@code null}. */
+    private BlockPos firstBlockInSight(BlockPos towards) {
+        Vec3 eye = steve.getEyePosition(1.0F);
+        BlockHitResult hit = steve.level().clip(new ClipContext(eye, Vec3.atCenterOf(towards),
+            ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, steve));
+        return hit.getType() == HitResult.Type.BLOCK ? hit.getBlockPos() : null;
+    }
+
+    /** Does this block touch open space, i.e. could it plausibly be seen at all? */
+    private boolean hasOpenNeighbour(BlockPos pos) {
+        for (Direction direction : Direction.values()) {
+            BlockState neighbour = steve.level().getBlockState(pos.relative(direction));
+            if (neighbour.isAir() || !neighbour.canOcclude()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Same distance test {@link #tickSurface} uses before swinging at a block. */
+    private boolean withinMiningReach(BlockPos pos) {
+        BlockPos stevePos = steve.blockPosition();
+        int dx = stevePos.getX() - pos.getX();
+        int dz = stevePos.getZ() - pos.getZ();
+        int dy = Math.abs(stevePos.getY() - pos.getY());
+        return Math.sqrt((double) dx * dx + (double) dz * dz) <= REACH && dy <= VERTICAL_REACH;
     }
 
     // ------------------------------------------------------------------
@@ -364,7 +465,7 @@ public class MineBlockAction extends BaseAction {
         ticksSinceProgress = 0;
     }
 
-    /** Mines any adjacent target blocks (the ore we just exposed). */
+    /** Mines any adjacent target blocks the Steve can actually see (the ore we just exposed). */
     private boolean harvestAdjacentTargets() {
         BlockPos center = steve.blockPosition();
         boolean found = false;
@@ -373,10 +474,16 @@ public class MineBlockAction extends BaseAction {
             for (int dy = -2; dy <= 2 && !found; dy++) {
                 for (int dz = -2; dz <= 2 && !found; dz++) {
                     BlockPos pos = center.offset(dx, dy, dz);
-                    if (steve.level().getBlockState(pos).getBlock() == targetBlock) {
-                        collectIfTarget(pos);
-                        found = true;
+                    if (steve.level().getBlockState(pos).getBlock() != targetBlock) {
+                        continue;
                     }
+                    // 隔着岩壁的矿石不算"看得见"：先把隧道挖过去、露出来，再收。
+                    // （主隧道与分支的挖掘本身就会把它挖开并计数，所以不会漏矿。）
+                    if (!canSee(pos)) {
+                        continue;
+                    }
+                    collectIfTarget(pos);
+                    found = true;
                 }
             }
         }
@@ -454,17 +561,22 @@ public class MineBlockAction extends BaseAction {
     // ------------------------------------------------------------------
 
     /**
-     * Breaks the block, banks the drops and queues connected logs so a whole tree comes down.
+     * Breaks one block and banks its drops.
+     *
+     * <p>Only a block of the requested type counts towards the quota. Digging the covering dirt
+     * off an ore is progress, but it is not production - counting it would finish "mine 8 coal"
+     * on a pile of dirt.</p>
+     *
+     * @return true when a block was actually broken
      */
-    private void harvest(BlockPos pos) {
+    private boolean harvest(BlockPos pos) {
         steve.getNavigation().stop();
         steve.getLookControl().setLookAt(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5);
         steve.swing(InteractionHand.MAIN_HAND, true);
 
         BlockState state = steve.level().getBlockState(pos);
         if (state.isAir()) {
-            pendingBlocks.poll();
-            return;
+            return false;
         }
 
         List<ItemStack> drops = new ArrayList<>();
@@ -472,22 +584,23 @@ public class MineBlockAction extends BaseAction {
             drops.addAll(Block.getDrops(state, serverLevel, pos, null));
         }
         if (!steve.level().destroyBlock(pos, false)) {
-            pendingBlocks.poll();
-            return;
+            return false;
         }
 
         depositDrops(drops);
-        collectedCount++;
         ticksSinceProgress = 0;
-        pendingBlocks.poll();
 
-        SteveMod.LOGGER.info("Steve '{}' collected {} at {} ({}/{})",
-            steve.getSteveName(), ActionUtils.blockName(targetBlock), pos,
-            collectedCount, targetQuantity);
+        if (state.getBlock() == targetBlock) {
+            collectedCount++;
+            SteveMod.LOGGER.info("Steve '{}' collected {} at {} ({}/{})",
+                steve.getSteveName(), ActionUtils.blockName(targetBlock), pos,
+                collectedCount, targetQuantity);
 
-        if (ActionUtils.isLog(state.getBlock())) {
-            queueConnectedLogs(pos);
+            if (ActionUtils.isLog(state.getBlock())) {
+                queueConnectedLogs(pos);
+            }
         }
+        return true;
     }
 
     private void depositDrops(List<ItemStack> drops) {
@@ -537,14 +650,31 @@ public class MineBlockAction extends BaseAction {
     }
 
     /**
-     * Locates the nearest block of the target type within {@link #SEARCH_RADIUS}.
+     * Locates the nearest block of the target type that the Steve could actually get at.
+     *
+     * <p>Two kinds of candidate, in order of preference:</p>
+     * <ol>
+     *   <li><b>Visible</b> - the line of sight reaches it, so just walk over and mine it.</li>
+     *   <li><b>Buried but close</b> - within {@link #DIG_TOWARD_RADIUS}. {@link #tickSurface}
+     *       will mine the covering block first, which is how "an ore a couple of blocks under
+     *       dirt" gets collected the way a player would do it.</li>
+     * </ol>
+     *
+     * <p>Candidates are only raycast against when they touch open space, so the scan stays a
+     * cheap block lookup even though it covers a 24-block radius extending 12 blocks down.</p>
      *
      * @return true when at least one block was queued
      */
     private boolean findSomethingToCollect() {
         BlockPos center = steve.blockPosition();
-        BlockPos best = null;
-        double bestDist = Double.MAX_VALUE;
+
+        BlockPos bestVisible = null;
+        double bestVisibleDist = Double.MAX_VALUE;
+        BlockPos nearestBuried = null;
+        double nearestBuriedDist = Double.MAX_VALUE;
+
+        int sightChecks = 0;
+        double digLimit = DIG_TOWARD_RADIUS * DIG_TOWARD_RADIUS;
 
         int r = (int) SEARCH_RADIUS;
         int minY = Math.max(steve.level().getMinBuildHeight(), center.getY() - 12);
@@ -556,27 +686,48 @@ public class MineBlockAction extends BaseAction {
             for (int dx = -r; dx <= r; dx++) {
                 for (int dz = -r; dz <= r; dz++) {
                     double d2 = (double) dx * dx + (double) dz * dz + (double) dy * dy;
-                    if (d2 > (double) r * r || d2 >= bestDist) {
+                    if (d2 > (double) r * r) {
                         continue;
                     }
+                    // Neither category can be improved beyond the further of the two bests.
+                    if (d2 >= bestVisibleDist && d2 >= nearestBuriedDist) {
+                        continue;
+                    }
+
                     BlockPos pos = new BlockPos(center.getX() + dx, y, center.getZ() + dz);
-                    if (steve.level().getBlockState(pos).getBlock() == targetBlock) {
-                        best = pos;
-                        bestDist = d2;
+                    if (steve.level().getBlockState(pos).getBlock() != targetBlock) {
+                        continue;
+                    }
+
+                    if (sightChecks < MAX_SIGHT_CHECKS && hasOpenNeighbour(pos)) {
+                        sightChecks++;
+                        if (canSee(pos)) {
+                            bestVisible = pos;
+                            bestVisibleDist = d2;
+                        }
+                        // 露着空气但看不见（隔着墙的另一侧）→ 不算"能挖到"，也不值得挖过去
+                        continue;
+                    }
+
+                    if (d2 <= digLimit) {
+                        nearestBuried = pos;
+                        nearestBuriedDist = d2;
                     }
                 }
             }
         }
 
-        if (best == null) {
+        BlockPos chosen = bestVisible != null ? bestVisible : nearestBuried;
+        if (chosen == null) {
             return false;
         }
 
+        double chosenDist = Math.sqrt(bestVisible != null ? bestVisibleDist : nearestBuriedDist);
         pendingBlocks.clear();
-        pendingBlocks.offer(best);
-        SteveMod.LOGGER.info("Steve '{}' heading for {} at {} ({}m away)",
-            steve.getSteveName(), ActionUtils.blockName(targetBlock), best,
-            (int) Math.sqrt(bestDist));
+        pendingBlocks.offer(chosen);
+        SteveMod.LOGGER.info("Steve '{}' heading for {} at {} ({}m away{})",
+            steve.getSteveName(), ActionUtils.blockName(targetBlock), chosen,
+            (int) chosenDist, bestVisible != null ? "" : ", buried - needs digging out");
         return true;
     }
 
