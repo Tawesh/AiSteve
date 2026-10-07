@@ -2,7 +2,9 @@ package com.steve.ai.client;
 
 import com.steve.ai.SteveMod;
 import com.steve.ai.client.gui.MainSettingsScreen;
+import com.steve.ai.client.gui.SteveInventoryScreen;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.MenuScreens;
 import net.minecraft.client.model.PlayerModel;
 import net.minecraft.client.model.geom.ModelLayers;
 import net.minecraft.client.renderer.entity.HumanoidMobRenderer;
@@ -40,6 +42,13 @@ public class ClientSetup {
         event.enqueueWork(() -> {
             // Register key handler
             net.minecraftforge.common.MinecraftForge.EVENT_BUS.register(KeyInputHandler.class);
+
+            // Bind the AI backpack viewer's screen to its menu type.
+            //
+            // Forge 1.20.1 has no RegisterMenuScreensEvent (that arrived in later versions), so
+            // this is done through MenuScreens.register inside client setup - which is also why
+            // it must not run on a dedicated server: this whole class is @Dist.CLIENT only.
+            MenuScreens.register(SteveMod.STEVE_INVENTORY_MENU.get(), SteveInventoryScreen::new);
         });
     }
 

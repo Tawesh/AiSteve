@@ -5,11 +5,14 @@ import com.steve.ai.command.AsCommands;
 import com.steve.ai.config.SteveConfig;
 import com.steve.ai.entity.SteveEntity;
 import com.steve.ai.entity.SteveManager;
+import com.steve.ai.menu.SteveInventoryMenu;
 import com.steve.ai.plugin.ActionRegistry;
 import com.steve.ai.plugin.PluginManager;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.MobCategory;
+import net.minecraft.world.inventory.MenuType;
 import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.common.extensions.IForgeMenuType;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.entity.EntityAttributeCreationEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
@@ -33,11 +36,31 @@ public class SteveMod {
     public static final DeferredRegister<EntityType<?>> ENTITIES = 
         DeferredRegister.create(ForgeRegistries.ENTITY_TYPES, MODID);
 
+    /**
+     * Container menus (currently the AI backpack viewer).
+     *
+     * <p>A separate register from {@link #ENTITIES} because menus are a distinct registry; both
+     * are handed to the mod event bus in the constructor.</p>
+     */
+    public static final DeferredRegister<MenuType<?>> MENUS =
+        DeferredRegister.create(ForgeRegistries.MENU_TYPES, MODID);
+
     public static final RegistryObject<EntityType<SteveEntity>> STEVE_ENTITY = ENTITIES.register("steve",
         () -> EntityType.Builder.of(SteveEntity::new, MobCategory.CREATURE)
             .sized(0.6F, 1.8F)
             .clientTrackingRange(10)
             .build("steve"));
+
+    /**
+     * The AI backpack viewer, opened by right-clicking the AI with an empty hand.
+     *
+     * <p>{@code IForgeMenuType.create} is what lets the opening side ship extra data (here: the
+     * entity id) alongside the window id, so the client can bind the window to the right AI
+     * without guessing.</p>
+     */
+    public static final RegistryObject<MenuType<SteveInventoryMenu>> STEVE_INVENTORY_MENU =
+        MENUS.register("steve_inventory",
+            () -> IForgeMenuType.create(SteveInventoryMenu::fromNetwork));
 
     private static SteveManager steveManager;
 
@@ -45,6 +68,7 @@ public class SteveMod {
         IEventBus modEventBus = FMLJavaModLoadingContext.get().getModEventBus();
 
         ENTITIES.register(modEventBus);
+        MENUS.register(modEventBus);
 
         ModLoadingContext.get().registerConfig(ModConfig.Type.COMMON, SteveConfig.SPEC);
 
