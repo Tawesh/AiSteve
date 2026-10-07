@@ -8,10 +8,15 @@ AiSteve is a Minecraft 1.20.1 Forge mod that integrates LLM-powered AI companion
 
 **Key constraints:**
 - Exactly one AI companion can exist at a time (enforced by `SteveManager`)
-- All interaction happens through the `/as` command (no GUI). New in the layered refactor:
-  `/as agent`, `/as goals`, `/as memory` expose the agent's internal state.
+- Interaction happens through the `/as` command (no GUI panel; `/as agent`, `/as goals` and
+  `/as memory` expose the agent's internal state), plus two physical affordances: right-click an
+  AI **holding an item** to hand one over, and right-click it **empty-handed** to open a
+  read-only view of its backpack.
 - The AI also *hears* ordinary chat from players within 48 blocks (`ServerEventHandler.onServerChat`).
-- The AI is stateful: inventory and world knowledge persist across sessions; conversation memory resets on restart
+- The AI is stateful: inventory, hunger and world knowledge persist across sessions; conversation memory resets on restart
+- **The AI has real health and a real hunger bar by default** - it can be hurt, starve and be
+  knocked down (`[agent].invulnerable = false`, `[agent].hunger = true`). The old permanent
+  invulnerability made `Needs.SAFETY`, `flee` and every "pull back" branch untestable.
 
 ## Build Commands
 
@@ -88,6 +93,9 @@ src/main/java/com/steve/ai/
 │   ├── SteveEntity      # The AI companion (PathfinderMob with inventory)
 │   ├── SteveManager     # Singleton manager enforcing one-AI limit
 │   └── SteveInventory   # Inventory wrapper with item management
+├── menu/                # Container menus (both sides)
+│   ├── SteveInventoryMenu        # Right-click viewer: 36 read-only AI slots + your inventory
+│   └── SteveInventoryContainer   # Read-through view of SteveInventory, guarded by mayPickup
 ├── memory/              # Persistence layer
 │   ├── SteveMemory      # Conversation context (per-session)
 │   ├── WorldMemory      # Discovered locations (villages, water, forests)
@@ -131,6 +139,10 @@ Agent Runtime. **See `ARCHITECTURE.md` for the full design**; this is the workin
   remaining teleport is the anti-lost recovery in `ActionExecutor`, reachable only from a human
   command or the stuck detector.
 - The AI may only act on what perception actually observed. Never invent a value.
+- **The AI may only affect what it can see and reach.** `MineBlockAction` raycasts with vanilla
+  `ClipContext` before breaking a block and mines the covering block first, so it can never
+  destroy an ore through the dirt above it. "It dug the coal without digging the dirt" is a bug
+  report waiting to happen, not a shortcut.
 - Capability boundaries are enforced by `ToolDispatcher` (Permission + RiskLevel), not by prompt
   wording. `Permission.ADMIN` tools are never registered/visible to the model.
 - Tools report honestly. `ToolResult.missingTool` / `unsupported` beats a silent no-op, because
@@ -179,10 +191,44 @@ way. Only the agent's `Reflection` may rewrite the queue.
 action is only detected via `ActionExecutor.ExecutionListener#onActionFinished`, which calls
 `AgentLoop.onActionFinished(...)` → `Reflection`.
 
-**1.20.1 gotcha:** `FoodData` lives on `Player`, *not* on `LivingEntity`. `SteveEntity` is a
-`PathfinderMob`, so it has no hunger bar. `SelfObserver` reports `food = -1` ("not applicable")
-and `Needs` maintains its own satiety, relieved by `Needs.onAte()` when a `use_item(self=true)`
-step runs.
+**1.20.1 note:** `FoodData` is only *attached* to `Player`, so a `PathfinderMob` has no vanilla
+hunger bar. That does **not** mean a Mob cannot have real hunger: `FoodData` itself is a plain
+instantiable class, so `SteveEntity` owns one and calls `foodData.eat(item, stack)` - which reads
+the item's real `FoodProperties`, so every vanilla/modded food restores the right amount.
+`SelfObserver` reports that value and `Needs.HUNGER` derives from it.
+
+The one member that cannot be reused is `FoodData#tick(Player)` (it wants a `Player` for the
+creative-mode check), so `SteveEntity#tickHunger` restates the same rules on top of the public
+API: exhaustion from movement, vanilla regeneration thresholds (18+ fast, 6+ slow), starvation
+damage every 4 s at zero food. This replaces an earlier "satiety lives in `Needs` and only decays"
+heuristic - that number could never make the AI actually starve.
+
+`FoodData#eat` does **not** consume the stack; the caller shrinks it (vanilla's `Player#eat` does
+the same). `FoodData` also has `addAdditionalSaveData` / `readAdditionalSaveData`, so hunger
+persists with the entity for free.
+
+**1.20.1 gotcha — `Inventory#add` destroys the stack you hand it.** Verified against the mapped
+jar: `add(ItemStack)` → `add(-1, stack)` → `stack.setCount(addResource(stack))`. It **mutates the
+argument in place**, leaving it holding only the part that did *not* fit, and the boolean return
+only means "did everything fit". Two consequences that have both caused real duplicates in this
+repo:
+
+- Read the amount **before** calling it. `player.getInventory().add(toGive)` followed by
+  `removeItem(item, toGive.getCount())` removes **0** on the normal path → the player receives the
+  items while the AI's bag is untouched, and the tally stays 0 (so the caller reports failure and
+  retries, handing over more).
+- When it returns `false`, drop **that same stack** (it now holds just the remainder). Passing a
+  fresh `copy()` instead hands the player the remainder *and* a whole stack at their feet.
+
+`SteveInventory#addItem` has the opposite contract (returns the leftover, never mutates), so the
+two are easy to confuse — check which inventory you are calling.
+
+**1.20.1 gotcha — container slots must not expose live stacks.** `AbstractContainerMenu#doClick`
+has branches (notably the hotbar-swap / number-key one) that read `Slot#getItem()` and grow the
+*player's* stack from it, while the removal is supposed to happen through `Container#removeItem`.
+A read-only container that returns its real stacks therefore leaks items without ever being asked.
+Copy in `getItem()` **and** refuse the click in `AbstractContainerMenu#clicked(...)` — slot flags
+(`mayPickup`/`mayPlace`) are only checked on the paths vanilla happens to check them on.
 
 ## Localisation (two tracks — do not mix them)
 
@@ -295,6 +341,18 @@ Known locations:
 - Sync changes to `PromptBuilder.buildSystemPrompt()` (this is the LLM's documentation)
 - Test with `/as` commands, check logs for plan output
 
+**Add a container GUI (menus are different in 1.20.1):**
+1. Write an `AbstractContainerMenu` subclass with fixed slot coordinates and the container
+   implementation; implement `quickMoveStack` and `stillValid` (both abstract).
+2. Register a `MenuType` via `IForgeMenuType.create(...)` on a `DeferredRegister<MenuType<?>>`
+   in `SteveMod` (`MENUS`), so extra data (e.g. an entity id) can ride along with the window.
+3. Open it server-side with `NetworkHooks.openScreen(player, provider, buf -> buf.writeVarInt(...))`.
+4. Bind the screen with **`MenuScreens.register(...)` inside `FMLClientSetupEvent#enqueueWork`** -
+   `RegisterMenuScreensEvent` does not exist in Forge 1.20.1 (it is a later-version event).
+5. Watch the two-sided container trap: the client container **must be writable**
+   (`SimpleContainer`), because `initializeContents` writes the synced stacks back through
+   `Slot#set`. A read-only client container silently drops everything the server sent.
+
 **Debug LLM failures:**
 1. Check `logs/latest.log` for `TaskPlanner` entries
 2. Look for HTTP error codes (401=bad key, 429=rate limit, 402=no credit)
@@ -349,8 +407,9 @@ Known locations:
 ## Important Files
 
 - `build.gradle` - Build config, dependency management, fatJar task definition
-- `src/main/java/com/steve/ai/SteveMod.java` - Mod entry point, entity registration
+- `src/main/java/com/steve/ai/SteveMod.java` - Mod entry point, entity + menu registration
 - `src/main/java/com/steve/ai/entity/SteveEntity.java` - Core AI entity with inventory and action executor
+- `src/main/java/com/steve/ai/menu/SteveInventoryMenu.java` - read-only backpack viewer (right-click, empty hand)
 - `src/main/java/com/steve/ai/agent/AgentRuntime.java` - assembles every layer for one AI (see ARCHITECTURE.md)
 - `src/main/java/com/steve/ai/agent/AgentLoop.java` - the slow-thinking loop (perception, goals, LLM, reflection)
 - `src/main/java/com/steve/ai/tool/ToolDispatcher.java` - permission gate; the AI's real capability boundary

@@ -164,7 +164,11 @@ com.steve.ai
 ├── action/                保留（Action = Tool 的底层实现，不删除）
 ├── event/                 【扩展】AgentEvent / AgentEventType
 ├── context/               保留（WorldContext 供旧路径与 TaskDecomposer 使用）
+├── menu/                  【新】容器界面（两侧共用菜单定义）
+│   ├── SteveInventoryMenu       空手右击 AI 打开：36 格只读背包 + 玩家物品栏
+│   └── SteveInventoryContainer  直读 SteveInventory 的只读 Container（槽位禁止取放）
 └── command/ client/ config/ plugin/ structure/ util/ di/  保留
+    └── client/gui/SteveInventoryScreen  只读背包窗口（程序化绘制，不引贴图）
 ```
 
 ---

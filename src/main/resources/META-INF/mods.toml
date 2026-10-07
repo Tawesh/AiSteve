@@ -1,21 +1,55 @@
 modLoader="javafml"
 loaderVersion="[47,)"
 license="MIT"
+issueTrackerURL="https://github.com/Tawesh/AiSteve/issues"
+
+# ---------------------------------------------------------------------------
+# Keys below are the ones Forge 1.20.1 actually reads.
+#
+# Verified against fmlloader-1.20.1-47.2.0 (ModInfo / ModFileInfo):
+#   per-mod : modId, namespace, version, displayName, description,
+#             logoFile, logoBlur, updateJSONURL, modUrl, modproperties,
+#             features, dependencies
+#   file    : modLoader, loaderVersion, license, issueTrackerURL,
+#             showAsResourcePack, services, properties, mods
+#
+# There is deliberately no "authors" / "credits" key - Forge dropped them
+# (that pair belongs to Fabric's fabric.mod.json), and there is no
+# "displayURL" either: the homepage link is "modUrl". Anything else in this
+# file is ignored in silence, which is how a placeholder URL can sit here for
+# several releases without anyone noticing it never rendered.
+#
+# This description is also *static*: Forge renders mod metadata as-is, with no
+# lang-key indirection, so it cannot follow the client's language the way the
+# rest of the mod's UI does (see CLAUDE.md, "Localisation").
+# ---------------------------------------------------------------------------
 
 [[mods]]
 modId="aisteve"
 version="1.0.0"
 displayName="AiSteve"
 description='''
-An AI companion that actually plays Minecraft with you. It understands natural
-language and mines, crafts, farms, fishes, loots villages, builds and explores
-like a real player. It remembers you, speaks your language, and comes to your
-defence when something attacks you.
+An AI companion that actually plays Minecraft with you. Talk to it in plain
+language and it mines, chops, crafts, smelts-free-bootstraps its own tools,
+farms, fishes, loots villages, builds and fights - the same ladder a player
+climbs, using only what it genuinely has.
 
-Note: this mod supports exactly one companion at a time.
+It is a layered agent rather than an "LLM to action" wrapper: it perceives,
+remembers, forms its own goals, and only calls the model when a decision really
+needs thinking. It keeps four kinds of memory across restarts, speaks whichever
+language you speak to it, reports progress out loud, comes back when it wanders
+off, and charges whatever hits you.
+
+Right-click it with an empty hand to look inside its backpack (read-only - it
+manages its own things), or with an item in hand to hand that item over.
+Everything else lives in the chat-based /as command.
+
+Requires Minecraft 1.20.1, Forge 47.2.0+ and an LLM API key (DeepSeek, OpenAI,
+Groq or Gemini). Note: exactly one companion can exist at a time.
+
+A fork of YuvDwi/Steve, substantially extended.
 '''
-authors="AiSteve Team"
-displayURL="https://github.com/yourusername/aisteve"
+modUrl="https://github.com/Tawesh/AiSteve"
 
 [[dependencies.aisteve]]
     modId="forge"

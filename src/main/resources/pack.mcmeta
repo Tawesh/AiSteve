@@ -1,6 +1,6 @@
 {
   "pack": {
-    "description": "AiSteve Resources",
+    "description": "AiSteve — built-in assets (UI text, AI speech bundles, textures)",
     "pack_format": 15,
     "forge:resource_pack_format": 15,
     "forge:data_pack_format": 12
