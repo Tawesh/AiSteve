@@ -42,6 +42,15 @@ public enum AgentEventType {
     ACTION_FAILED("动作失败", true),
     /** An internal need crossed its threshold. */
     NEED_THRESHOLD("需求阈值", true),
+    /**
+     * The AI itself was hurt. Distinct from {@link #PLAYER_HURT}: this is self-preservation, not
+     * protecting somebody else.
+     *
+     * <p>Informational (it lands in working memory) rather than a waker: a hit that actually
+     * matters also publishes {@link #LOW_HEALTH}, and that is what wakes the loop. Two wake
+     * signals for one event would just spend tokens twice.</p>
+     */
+    AGENT_HURT("AI受伤", false),
     /** The AI died. */
     AGENT_DIED("AI死亡", true);
 

@@ -1,5 +1,6 @@
 package com.steve.ai.perception;
 
+import com.steve.ai.config.RuntimeSettings;
 import com.steve.ai.entity.SteveEntity;
 import com.steve.ai.protocol.Observation;
 import com.steve.ai.util.ActionUtils;
@@ -28,10 +29,12 @@ public final class SelfObserver {
         ItemStack mainHand = steve.getMainHandItem();
         String mainHandName = mainHand.isEmpty() ? "空手" : ActionUtils.itemName(mainHand.getItem());
 
-        // Hunger: a Mob in 1.20.1 has no FoodData (that lives on Player), so the AI cannot
-        // read a hunger bar. -1 means "not applicable"; Needs tracks its own satiety instead.
-        // Mirrors the perception principle: never invent a value you cannot actually observe.
-        final int foodLevel = -1;
+        // Hunger: the AI owns a real FoodData (see SteveEntity), so this is an observed value
+        // rather than a "not applicable" placeholder. -1 is still used when hunger is switched
+        // off in the config, which is the honest way to say "there is no hunger bar".
+        final int foodLevel = RuntimeSettings.hunger()
+            ? steve.getFoodData().getFoodLevel()
+            : -1;
 
         return new Observation.SelfState(
             steve.getHealth(),

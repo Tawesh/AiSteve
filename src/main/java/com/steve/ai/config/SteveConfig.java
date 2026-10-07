@@ -43,6 +43,18 @@ public class SteveConfig {
      */
     public static final ForgeConfigSpec.BooleanValue DEFEND_AGAINST_PLAYERS;
     /**
+     * Make the AI immune to all damage.
+     *
+     * <p>Off by default: an invulnerable companion makes half the agent decorative - the
+     * {@code SURVIVE} need, the {@code flee} tool and every "low health, pull back" branch can
+     * never be triggered by an actual hit. See {@code docs/STATUS.md}.</p>
+     */
+    public static final ForgeConfigSpec.BooleanValue INVULNERABLE;
+    /** Give the AI a real hunger bar (eat, starve, heal when fed). */
+    public static final ForgeConfigSpec.BooleanValue HUNGER_ENABLED;
+    /** On death: respawn at the player's side keeping memory and inventory, or die for real. */
+    public static final ForgeConfigSpec.BooleanValue RESPAWN_AFTER_DEATH;
+    /**
      * The language the AI speaks when nobody has spoken yet.
      *
      * <p>Once a player talks to the AI, the language follows <em>them</em> - a companion that
@@ -161,6 +173,27 @@ public class SteveConfig {
                      "whenever someone addresses it in the other one.",
                      "The mod's own UI is not affected - Minecraft translates that per client.")
             .define("language", "zh_cn");
+
+        INVULNERABLE = builder
+            .comment("Make the AI immune to all damage.",
+                     "false (default) = real health, takes damage, can die, and its SURVIVE /",
+                     "  flee / self-preservation behaviour finally reacts to real hits.",
+                     "true = the old behaviour: it can never be hurt or killed.")
+            .define("invulnerable", false);
+
+        HUNGER_ENABLED = builder
+            .comment("Give the AI a real hunger bar, exactly like a player's.",
+                     "true (default) = it gets hungry, starves and takes damage at zero, heals",
+                     "  itself when well fed, and eats food it is carrying.",
+                     "false = no hunger; it never needs to eat.")
+            .define("hunger", true);
+
+        RESPAWN_AFTER_DEATH = builder
+            .comment("What happens when the AI dies (only relevant when invulnerable = false).",
+                     "true (default) = it respawns at your side after a short delay, keeping its",
+                     "  memory AND its inventory - nothing is ever lost.",
+                     "false = it dies for real: items drop, and you must /as create again.")
+            .define("respawnAfterDeath", true);
 
         builder.pop();
 

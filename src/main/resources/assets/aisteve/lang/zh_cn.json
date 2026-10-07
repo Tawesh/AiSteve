@@ -9,6 +9,10 @@
   "aisteve.screen.main.capabilities": "AI 能力开关",
   "aisteve.screen.main.done": "完成",
 
+  "aisteve.gui.inventory.title": "%s 的背包",
+  "aisteve.gui.inventory.empty": "背包是空的",
+  "aisteve.gui.inventory.readonly": "只读窗口：东西归 AI 自己管（空手右击可再次打开）",
+
   "aisteve.screen.llm.title": "大模型 API 配置",
   "aisteve.screen.llm.hint": "支持所有 OpenAI 兼容接口的服务商（可用滚轮滚动）",
   "aisteve.screen.llm.preset_hint": "§8点击切换预设可自动填入地址与模型名",
@@ -70,7 +74,8 @@
   "aisteve.cmd.cleanup_done": "§a已清理 %d 个 AI 实体（含旧版本残留）。现在可以重新 §b/as create§a。",
   "aisteve.cmd.cleanup_none": "§7没有找到需要清理的 AI 实体。",
   "aisteve.cmd.info_none": "§7当前没有 AI 玩家。用 §b/as create <名字>§7 创建一个。",
-  "aisteve.cmd.info": "§aAI 玩家：§e%s\n§7位置：§f%d, %d, %d\n§7生命：§f%d/%d\n§7背包：§f%s\n§7当前目标：§f%s",
+  "aisteve.cmd.info": "§aAI 玩家：§e%s\n§7位置：§f%d, %d, %d\n§7生命：§f%d/%d\n§7饱食度：§f%s\n§7背包：§f%s\n§7当前目标：§f%s",
+  "aisteve.cmd.food_off": "未启用（[agent].hunger = false）",
   "aisteve.cmd.idle": "空闲",
   "aisteve.cmd.stopped": "§a已让 §e%s§a 停下。",
   "aisteve.cmd.called": "§a已把 §e%s§a 叫到身边。",
@@ -96,5 +101,6 @@
   "aisteve.event.duplicates": "§e[AiSteve] §f发现并清理了 %d 个多余的 AI 玩家（本模组只支持 1 个）。",
   "aisteve.event.adopted": "§a[AiSteve] §f已接管 AI 玩家 §e%s§f。",
   "aisteve.event.got_item": "收到了 %s，谢谢！",
-  "aisteve.event.bag_full_chat": "我的背包满了..."
+  "aisteve.event.bag_full_chat": "我的背包满了...",
+  "aisteve.event.knocked_down": "被 %s 打倒了，我先缓一缓！"
 }

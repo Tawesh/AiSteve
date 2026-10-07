@@ -76,17 +76,13 @@ public final class Needs {
         }
         Observation.SelfState self = observation.self();
 
-        // Hunger. The AI is a Mob, so there is no vanilla hunger bar to read (see
-        // SelfObserver); satiety therefore lives here and decays with time, relieved by
-        // onAte() when it actually eats something.
+        // Hunger comes straight from the AI's real food bar now (see SteveEntity#getFoodData), so
+        // this is an observation, not a guess. `food < 0` means hunger is switched off in the
+        // config, in which case the need simply stays satisfied.
         if (self.food() >= 0) {
             set(Kind.HUNGER, clamp(100.0 - self.food() * 5.0));
         } else {
-            grow(Kind.HUNGER, 0.010);
-            if (observation.inventory().isEmpty()) {
-                // An empty backpack makes hunger more urgent, not less.
-                grow(Kind.HUNGER, 0.004);
-            }
+            set(Kind.HUNGER, 0.0);
         }
 
         // Safety: low health dominates; nearby hostiles add pressure.
@@ -151,11 +147,14 @@ public final class Needs {
     /**
      * Records that the AI actually ate something.
      *
-     * <p>This is the only thing that relieves {@link Kind#HUNGER}, which is what makes
-     * "饥饿 → 找吃的 → 吃 → 不饿了" a real loop rather than a number that only ever climbs.</p>
+     * <p>Hunger is now derived from the real food bar, which {@code FoodData#eat} has already
+     * topped up by the time this runs - so there is nothing to decay here. The hook is kept
+     * because it is the one place that knows "a meal just happened", which is what stops the AI
+     * from immediately setting off to look for more food on the same tick.</p>
      */
     public void onAte() {
-        decay(Kind.HUNGER, 70.0);
+        // Satisfied for now; the next perception cycle re-derives it from the real food bar.
+        set(Kind.HUNGER, 0.0);
     }
 
     /**

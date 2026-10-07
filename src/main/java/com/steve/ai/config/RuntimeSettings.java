@@ -25,6 +25,9 @@ public final class RuntimeSettings {
     private static volatile boolean chatResponses = true;
     private static volatile boolean defendAgainstPlayers = true;
     private static volatile boolean agentEnabled = true;
+    private static volatile boolean invulnerable = false;
+    private static volatile boolean hunger = true;
+    private static volatile boolean respawnAfterDeath = true;
     private static volatile ConversationLanguage conversationLanguage = ConversationLanguage.ZH_CN;
 
     private RuntimeSettings() {
@@ -39,13 +42,36 @@ public final class RuntimeSettings {
         chatResponses = read(() -> SteveConfig.ENABLE_CHAT_RESPONSES.get(), true);
         defendAgainstPlayers = read(() -> SteveConfig.DEFEND_AGAINST_PLAYERS.get(), true);
         agentEnabled = read(() -> SteveConfig.ENABLE_AGENT.get(), true);
+        invulnerable = read(() -> SteveConfig.INVULNERABLE.get(), false);
+        hunger = read(() -> SteveConfig.HUNGER_ENABLED.get(), true);
+        respawnAfterDeath = read(() -> SteveConfig.RESPAWN_AFTER_DEATH.get(), true);
         conversationLanguage = ConversationLanguage.parse(
             read(() -> SteveConfig.AGENT_LANGUAGE.get(), "zh_cn"),
             ConversationLanguage.ZH_CN);
 
         SteveMod.LOGGER.debug(
-            "[AiSteve] 运行时设置已刷新: 活动半径={}, 自主={}, 主动说话={}, 进度播报={}",
-            roamRadius, autonomy, idleChat, progressNarration);
+            "[AiSteve] 运行时设置已刷新: 活动半径={}, 自主={}, 主动说话={}, 进度播报={}, 无敌={}, 饥饿={}",
+            roamRadius, autonomy, idleChat, progressNarration, invulnerable, hunger);
+    }
+
+    /** 是否让 AI 免疫一切伤害。<b>默认 false</b> —— 它有真实生命值。 */
+    public static boolean invulnerable() {
+        return invulnerable;
+    }
+
+    /** AI 是否有真实饱食度（会饿、会饿死、吃饱会回血）。 */
+    public static boolean hunger() {
+        return hunger;
+    }
+
+    /**
+     * 死亡后是否在身边重生。
+     *
+     * <p>默认 true，且会保留记忆与背包 —— "会死"是为了让生存闭环成立，
+     * 不是为了惩罚玩家弄丢自己的同伴。</p>
+     */
+    public static boolean respawnAfterDeath() {
+        return respawnAfterDeath;
     }
 
     /** 与玩家保持的最大距离（方块）。 */

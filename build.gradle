@@ -14,6 +14,14 @@ base {
 
 java.toolchain.languageVersion = JavaLanguageVersion.of(17)
 
+// Source files are UTF-8 (they contain Chinese comments and strings). Without this the
+// compiler falls back to the platform default encoding - GBK on a Chinese Windows JVM -
+// and fails with "unmappable character" errors on dozens of unrelated files, which looks
+// like broken code but is purely a locale problem.
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
 minecraft {
     mappings channel: 'official', version: '1.20.1'
 

@@ -35,12 +35,15 @@ import java.util.Map;
  * holds the ingredients, walks to (or builds) a crafting table if the recipe is 3x3, consumes
  * the materials and puts the product in its inventory.</p>
  *
- * <p>This turns the AI from "asks the player for everything" into something that can bootstrap
- * its own tools: chop a tree, craft planks, craft a crafting table, craft a wooden pickaxe,
- * then go mining - the same chain a player follows.</p>
+ * <p><b>It also builds the intermediate materials itself.</b> Asking for a wooden pickaxe when
+ * the bag holds four oak_logs used to fail with "missing oak_planks, stick" - the recipe check
+ * only ever looked at the <em>final</em> recipe, so the AI concluded it lacked materials and
+ * went off to chop more trees, while the logs it already owned sat in the bag. Now the missing
+ * ingredients are crafted from the bag first (log → planks → sticks), which is the same ladder a
+ * player climbs and the whole point of "先用手上的东西".</p>
  *
  * <p><b>Parameters:</b> {@code item} (e.g. {@code oak_planks}, {@code crafting_table},
- * {@code stick}, {@code wooden_pickaxe}), {@code quantity} (batches, default 1).</p>
+ * {@code stick}, {@code wooden_pickaxe}), {@code quantity} (final items wanted, default 1).</p>
  */
 public class CraftItemAction extends BaseAction {
 
@@ -48,10 +51,19 @@ public class CraftItemAction extends BaseAction {
     private static final double TABLE_SEARCH_RADIUS = 24.0;
     private static final double TABLE_REACH = 4.5;
 
+    /**
+     * How deep the "build the missing ingredients first" ladder may go.
+     *
+     * <p>Vanilla needs two rungs for a tool (logs → planks → sticks); three leaves room for a
+     * modded chain while still guaranteeing termination.</p>
+     */
+    private static final int MAX_INTERMEDIATE_DEPTH = 3;
+
     private Item targetItem;
     private int batchesWanted;
     private int batchesCrafted;
-
+    /** 这次任务要的物品总数（不是批次数）——用于汇报与材料预留。 */
+    private int desiredCount;
     private int ticksRunning;
     private BlockPos tablePos;          // crafting table we plan to use, if any
     private boolean needsTable;
@@ -64,7 +76,7 @@ public class CraftItemAction extends BaseAction {
     @Override
     protected void onStart() {
         String itemName = task.getStringParameter("item");
-        int desiredCount = Math.max(1, task.getIntParameter("quantity", 1));
+        desiredCount = Math.max(1, task.getIntParameter("quantity", 1));
 
         batchesCrafted = 0;
         ticksRunning = 0;
@@ -99,7 +111,8 @@ public class CraftItemAction extends BaseAction {
 
         if (stillNeeded == 0) {
             result = ActionResult.success(
-                "背包里已经有 " + alreadyHas + " 个 " + friendlyName(targetItem) + " 了，不用再合成");
+                "背包里已经有 " + alreadyHas + " 个 " + friendlyName(targetItem)
+                    + " 了（这次要 " + desiredCount + " 个），不用再合成");
             return;
         }
 
@@ -115,8 +128,8 @@ public class CraftItemAction extends BaseAction {
 
         if (needsTable && !ensureCraftingTableAvailable()) {
             result = ActionResult.failure(
-                "I need a crafting table for " + ActionUtils.itemName(targetItem)
-                    + ", and I don't have one nearby or the planks to make one.");
+                "做 " + friendlyName(targetItem) + " 需要一个工作台：附近没有现成的，"
+                + "而我手上这些材料得留着做它本身。先再弄点木头/木板给我吧");
             return;
         }
 
@@ -194,20 +207,18 @@ public class CraftItemAction extends BaseAction {
         while (craftedNow < batchesWanted) {
             Map<Item, Integer> plan = planConsumption(recipe);
             if (plan == null) {
-                break;      // missing materials
-            }
-            consume(plan);
-
-            SteveInventory inventory = steve.getInventory();
-            ItemStack produced = resultStack.copy();
-            if (inventory == null) {
-                steve.spawnAtLocation(produced);
-            } else {
-                int leftover = inventory.addItem(produced);
-                if (leftover > 0) {
-                    steve.spawnAtLocation(produced.copyWithCount(leftover));
+                // 【先用手上的东西】最终配方的材料不够 —— 先用背包里现有材料把缺的中间材料做出来
+                // （原木 → 木板 → 木棍），而不是立刻放弃、跑去找新的原料。
+                if (!craftMissingIngredients(recipe, MAX_INTERMEDIATE_DEPTH)) {
+                    break;              // 背包里确实做不出来 → 交给上层如实报告缺什么
+                }
+                plan = planConsumption(recipe);
+                if (plan == null) {
+                    break;              // 做了中间材料还是不够（例如还差矿石）
                 }
             }
+            consume(plan);
+            store(resultStack.copy());
             craftedNow++;
             batchesCrafted++;
         }
@@ -221,18 +232,26 @@ public class CraftItemAction extends BaseAction {
 
         // itemsPerBatch, not batches - reporting "4x stick" when it actually produced 16 was
         // part of why the AI's own reports did not match what the player saw in their inventory.
-        int produced = craftedNow * resultStack.getCount();
+        int perBatch = resultStack.getCount();
+        int produced = craftedNow * perBatch;
         String name = friendlyName(targetItem);
 
-        SteveMod.LOGGER.info("Steve '{}' crafted {}x {} ({} batch(es))",
-            steve.getSteveName(), produced, ActionUtils.itemName(targetItem), craftedNow);
+        // 玩家要"1 个"，配方一批却出 4 个（木板/木棍/火把都是这样），看到的数字就会对不上。
+        // 与其让这件事看起来像"合成数量失控"，不如把差额原因一起说清楚。
+        String yieldNote = produced == desiredCount || perBatch <= 1
+            ? ""
+            : "（你要 " + desiredCount + " 个，这个配方每批产出 " + perBatch + " 个）";
+
+        SteveMod.LOGGER.info("Steve '{}' crafted {}x {} ({} batch(es), asked for {})",
+            steve.getSteveName(), produced, ActionUtils.itemName(targetItem), craftedNow,
+            desiredCount);
 
         if (craftedNow < batchesWanted) {
             // 部分完成：够用的都做了，但没有可再尝试的（材料不够），因此不该触发重规划。
             result = ActionResult.partial(
-                "合成了 " + produced + " 个 " + name + "（材料只够这么多）");
+                "合成了 " + produced + " 个 " + name + "（材料只够这么多）" + yieldNote);
         } else {
-            result = ActionResult.success("合成了 " + produced + " 个 " + name);
+            result = ActionResult.success("合成了 " + produced + " 个 " + name + yieldNote);
         }
     }
 
@@ -243,6 +262,222 @@ public class CraftItemAction extends BaseAction {
         } catch (Exception e) {
             return ActionUtils.itemName(item);
         }
+    }
+
+    /** 把产物放进背包；放不下就掉在脚边（与挖矿、拾取的行为一致）。 */
+    private void store(ItemStack stack) {
+        SteveInventory inventory = steve.getInventory();
+        if (inventory == null) {
+            steve.spawnAtLocation(stack);
+            return;
+        }
+        int leftover = inventory.addItem(stack);
+        if (leftover > 0) {
+            steve.spawnAtLocation(stack.copyWithCount(leftover));
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // 用背包里现有的材料补做中间材料
+    // ------------------------------------------------------------------
+
+    /**
+     * 把目标配方缺的**中间材料**用背包里现有的东西做出来，例如 原木 → 木板 → 木棍。
+     *
+     * <p>为什么需要它：配方检查原先只看最终配方，于是"背包里有 4 根原木，要一把木镐"会被判成
+     * 缺材料（缺 oak_planks / stick），AI 便跑出去砍树 —— 玩家看到的就是"它明明有材料，
+     * 却不用自己背包里的东西，反而去重新采集"。这里补上玩家本来就会做的那一步。</p>
+     *
+     * <p>约束：</p>
+     * <ul>
+     *   <li>只做配方**真正需要**的材料，不做别的；</li>
+     *   <li>深度受限（{@link #MAX_INTERMEDIATE_DEPTH}），保证一定结束；</li>
+     *   <li>需要 3×3 的中间配方只在**已有工作台**时才做 —— 不为了中间材料再造一个台子；</li>
+     *   <li>没有配方的材料（矿石、小麦…）不动手，交给上层如实报告"缺什么"。</li>
+     * </ul>
+     *
+     * @param depth remaining recursion budget
+     * @return true when at least one missing ingredient was actually produced
+     */
+    private boolean craftMissingIngredients(CraftingRecipe recipe, int depth) {
+        if (depth <= 0) {
+            return false;
+        }
+
+        boolean producedAny = false;
+
+        for (Ingredient ingredient : recipe.getIngredients()) {
+            if (ingredient.isEmpty() || canFulfil(ingredient)) {
+                continue;                       // 背包里已经有了，不用做
+            }
+
+            CraftingRecipe sub = findRecipeForIngredient(ingredient);
+            if (sub == null) {
+                continue;                       // 采集类材料，做不出来
+            }
+            if (!sub.canCraftInDimensions(2, 2) && !craftingTableAvailable()) {
+                continue;                       // 需要工作台而手边没有，不乱造台子
+            }
+
+            Map<Item, Integer> plan = planConsumption(sub);
+            if (plan == null) {
+                // 子配方自己的材料也不够：再往下一层（例如做木棍需要木板，木板又需要原木）
+                if (!craftMissingIngredients(sub, depth - 1)) {
+                    continue;
+                }
+                plan = planConsumption(sub);
+                if (plan == null) {
+                    continue;
+                }
+            }
+
+            ItemStack subResult = sub.getResultItem(steve.level().registryAccess());
+            if (subResult.isEmpty()) {
+                continue;
+            }
+            consume(plan);
+            store(subResult.copy());
+            producedAny = true;
+
+            SteveMod.LOGGER.info("[CraftItemAction] 用背包里的材料先做了 {} 个 {}",
+                subResult.getCount(), ActionUtils.itemName(subResult.getItem()));
+        }
+
+        return producedAny;
+    }
+
+    /** 背包里现在有没有能满足这个材料的物品。 */
+    private boolean canFulfil(Ingredient ingredient) {
+        SteveInventory inventory = steve.getInventory();
+        if (inventory == null) {
+            return false;
+        }
+        for (ItemStack stack : inventory.getStacks()) {
+            if (!stack.isEmpty() && ingredient.test(stack)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Finds a recipe that produces something this ingredient accepts.
+     *
+     * <p>Ingredients are often tags ("any planks"), so the accepted list is walked and the first
+     * item with a usable recipe wins - scoring inside {@link #findRecipeFor} keeps that the
+     * common vanilla variant rather than bamboo planks.</p>
+     */
+    private CraftingRecipe findRecipeForIngredient(Ingredient ingredient) {
+        for (ItemStack option : ingredient.getItems()) {
+            if (option.isEmpty()) {
+                continue;
+            }
+            CraftingRecipe recipe = findRecipeFor(option.getItem());
+            if (recipe != null) {
+                return recipe;
+            }
+        }
+        return null;
+    }
+
+    /** True when a working table is reachable (nearby, carried, or already chosen). */
+    private boolean craftingTableAvailable() {
+        if (tablePos != null) {
+            return true;
+        }
+        SteveInventory inventory = steve.getInventory();
+        if (inventory != null && inventory.count(Items.CRAFTING_TABLE) > 0) {
+            return true;
+        }
+        return findNearbyCraftingTable() != null;
+    }
+
+    /** 当前背包的数量快照（物品 → 数量），供干跑模拟使用。 */
+    private Map<Item, Integer> bagCounts() {
+        Map<Item, Integer> counts = new LinkedHashMap<>();
+        SteveInventory inventory = steve.getInventory();
+        if (inventory == null) {
+            return counts;
+        }
+        for (ItemStack stack : inventory.getStacks()) {
+            if (!stack.isEmpty()) {
+                counts.merge(stack.getItem(), stack.getCount(), Integer::sum);
+            }
+        }
+        return counts;
+    }
+
+    /**
+     * 干跑：假设背包只有这些数量，还能不能做出 {@code item}？
+     *
+     * <p>只算材料、不管工作台 —— 调用它的地方（造工作台之前）正打算把台子做出来，
+     * 所以"能不能用工作台"由调用方负责判断。</p>
+     *
+     * <p>成功时会把消耗**就地**从 {@code counts} 扣掉，因此调用方必须传副本；
+     * 这样多个材料槽位才是真的在争同一批材料，而不是各自看到完整背包
+     * （否则"需要 8 个木板、手上只有 4 个"会被误判成做得到）。</p>
+     */
+    private boolean canMakeFrom(Item item, Map<Item, Integer> counts, int depth) {
+        Integer owned = counts.get(item);
+        if (owned != null && owned > 0) {
+            counts.merge(item, -1, Integer::sum);
+            return true;
+        }
+        if (depth <= 0) {
+            return false;
+        }
+        CraftingRecipe recipe = findRecipeFor(item);
+        if (recipe == null) {
+            return false;
+        }
+        for (Ingredient ingredient : recipe.getIngredients()) {
+            if (ingredient.isEmpty()) {
+                continue;
+            }
+            if (!canFulfilFrom(ingredient, counts, depth - 1)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** 干跑版的 {@link #canFulfil}：从模拟数量里找，必要时先把材料做出来。 */
+    private boolean canFulfilFrom(Ingredient ingredient, Map<Item, Integer> counts, int depth) {
+        for (Map.Entry<Item, Integer> entry : counts.entrySet()) {
+            if (entry.getValue() > 0 && ingredient.test(new ItemStack(entry.getKey()))) {
+                counts.merge(entry.getKey(), -1, Integer::sum);
+                return true;
+            }
+        }
+        if (depth <= 0) {
+            return false;
+        }
+        for (ItemStack option : ingredient.getItems()) {
+            if (option.isEmpty()) {
+                continue;
+            }
+            // 只有成功才把这次消耗带回上层
+            Map<Item, Integer> attempt = new LinkedHashMap<>(counts);
+            if (canMakeFrom(option.getItem(), attempt, depth - 1)) {
+                counts.clear();
+                counts.putAll(attempt);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 从模拟数量里扣掉一批消耗；不够就返回 false（不修改）。 */
+    private static boolean spend(Map<Item, Integer> counts, Map<Item, Integer> cost) {
+        for (Map.Entry<Item, Integer> entry : cost.entrySet()) {
+            if (counts.getOrDefault(entry.getKey(), 0) < entry.getValue()) {
+                return false;
+            }
+        }
+        for (Map.Entry<Item, Integer> entry : cost.entrySet()) {
+            counts.merge(entry.getKey(), -entry.getValue(), Integer::sum);
+        }
+        return true;
     }
 
     /**
@@ -335,8 +570,21 @@ public class CraftItemAction extends BaseAction {
     }
 
     /**
-     * Makes sure a crafting table is reachable: use a nearby one, otherwise craft a table from
-     * planks and place it.
+     * Makes sure a crafting table is reachable: use a nearby one, otherwise place a carried
+     * one, otherwise build one - but only out of materials this job does not need.
+     *
+     * <p><b>Why the reservation matters.</b> The old version happily converted the Steve's own
+     * planks into a table and placed it in the world. For a 3x3 recipe that needs those very
+     * planks (a wooden pickaxe needs 3 of the 4 planks that also make the table), the job then
+     * ran out of material and reported "missing materials" - <em>after</em> the AI had already
+     * announced that it was crafting things and after it had handed items to the player. That is
+     * one half of the "it gave me the stuff and still says it can't do it" contradiction, and it
+     * is also why the amounts looked out of control: asking for one item silently cost four
+     * extra planks.</p>
+     *
+     * <p>Now the target recipe's own materials are counted first and the table is only built
+     * from the genuine surplus. When there is no surplus the craft fails honestly and the
+     * reflection layer asks for more wood, exactly like a player would.</p>
      *
      * @return true when a usable table is (or will be) available in {@link #tablePos}
      */
@@ -348,29 +596,86 @@ public class CraftItemAction extends BaseAction {
             return true;
         }
 
-        // 2) Carry one? Place it.
+        // 2) Carry one? Place it. (A table crafted by an earlier step comes back through here.)
         SteveInventory inventory = steve.getInventory();
         if (inventory != null && inventory.removeItem(Items.CRAFTING_TABLE, 1) > 0) {
             return placeTableNearby();
         }
 
-        // 3) Craft one (4 planks). This is a 2x2 recipe, so no table needed for it.
+        // 3) Craft one (4 planks). This is a 2x2 recipe, so no table needed for it -
+        //    but the wood may already be spoken for by the job we are working on.
         CraftingRecipe tableRecipe = findRecipeFor(Items.CRAFTING_TABLE);
         if (tableRecipe == null) {
             return false;
         }
-        Map<Item, Integer> plan = planConsumption(tableRecipe);
-        if (plan == null) {
+
+        // 【先判断再做】模拟一下：如果把这 4 块木板用在台子上，目标还做得出来吗？
+        // 只看背包数量、真的动手之前就决定，所以不会出现"先把原木切成木板、然后才发现不该做"。
+        if (!targetStillMakeableAfterTable(tableRecipe)) {
+            SteveMod.LOGGER.info(
+                "[CraftItemAction] 不拿木板去做工作台：剩下的材料就做不出 {} 了",
+                ActionUtils.itemName(targetItem));
             return false;
         }
-        consume(plan);
-        if (steve.getInventory() != null) {
-            steve.getInventory().addItem(new ItemStack(Items.CRAFTING_TABLE));
+
+        // 木板不够时允许先用原木做成木板（玩家本来也是这么做的）
+        Map<Item, Integer> tablePlan = planConsumption(tableRecipe);
+        if (tablePlan == null) {
+            if (craftMissingIngredients(tableRecipe, MAX_INTERMEDIATE_DEPTH)) {
+                tablePlan = planConsumption(tableRecipe);
+            }
         }
+        if (tablePlan == null) {
+            return false;
+        }
+
+        consume(tablePlan);
+        store(new ItemStack(Items.CRAFTING_TABLE));
         SteveMod.LOGGER.info("Steve '{}' crafted a crafting table to work at",
             steve.getSteveName());
 
         return placeTableNearby();
+    }
+
+    /**
+     * 造完工作台之后，原本要做的东西还做得出来吗？
+     *
+     * <p>这就替代了原来那版"预留目标配方直接材料"的算法，而且比它更准：干跑会连
+     * "用原木先做木板、再用木板做木棍"这种多级链条一起算进去，于是
+     * "4 根原木 → 1 个工作台 + 1 把木镐"这种完全正当的做法不会再被误判成材料不够。</p>
+     *
+     * @param tableRecipe 工作台配方（要扣掉的那 4 块木板）
+     */
+    private boolean targetStillMakeableAfterTable(CraftingRecipe tableRecipe) {
+        Map<Item, Integer> simulated = bagCounts();
+        if (simulated.isEmpty()) {
+            return false;
+        }
+
+        Map<Item, Integer> tableCost = new LinkedHashMap<>();
+        for (Ingredient ingredient : tableRecipe.getIngredients()) {
+            if (ingredient.isEmpty()) {
+                continue;
+            }
+            // 用背包里真有的那种木板来扣（配方通常接受所有木板标签）
+            Item picked = null;
+            for (Map.Entry<Item, Integer> entry : simulated.entrySet()) {
+                if (entry.getValue() > 0 && ingredient.test(new ItemStack(entry.getKey()))) {
+                    picked = entry.getKey();
+                    break;
+                }
+            }
+            if (picked == null) {
+                return false;                       // 连台子的木板都不够
+            }
+            tableCost.merge(picked, 1, Integer::sum);
+        }
+
+        if (!spend(simulated, tableCost)) {
+            return false;
+        }
+        // 只看材料：台子正是这一步要弄出来的，所以这里不管 2×2 / 3×3
+        return canMakeFrom(targetItem, simulated, MAX_INTERMEDIATE_DEPTH);
     }
 
     /** Places a crafting table on solid ground next to the Steve. */

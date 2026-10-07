@@ -5,6 +5,7 @@ import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import com.steve.ai.SteveMod;
+import com.steve.ai.config.RuntimeSettings;
 import com.steve.ai.entity.SteveEntity;
 import com.steve.ai.entity.SteveManager;
 import com.steve.ai.i18n.AgentLang;
@@ -217,10 +218,18 @@ public class AsCommands {
         final String goalText = goal == null || goal.isEmpty()
             ? Component.translatable("aisteve.cmd.idle").getString()
             : goal;
+
+        // Hunger is only meaningful when it is switched on; report it the way SelfObserver does.
+        final int food = RuntimeSettings.hunger() ? steve.getFoodData().getFoodLevel() : -1;
+        final String foodText = food < 0
+            ? Component.translatable("aisteve.cmd.food_off").getString()
+            : food + " / 20";
+
         source.sendSuccess(() -> Component.translatable("aisteve.cmd.info",
             steve.getSteveName(),
             pos.getX(), pos.getY(), pos.getZ(),
             (int) steve.getHealth(), (int) steve.getMaxHealth(),
+            foodText,
             steve.getInventory().describe(),
             goalText), false);
         return 1;
@@ -500,9 +509,16 @@ public class AsCommands {
         int moved = 0;
         for (ItemStack stack : new java.util.ArrayList<>(steve.getInventory().getStacks())) {
             int n = stack.getCount();
-            if (!player.getInventory().add(stack.copy())) {
-                player.drop(stack.copy(), false);
+
+            // `Inventory#add` consumes the stack it is handed and leaves only the part that did
+            // not fit, so the leftover has to be dropped from *that* stack. Dropping a fresh
+            // copy() here handed the player everything twice: (n - leftover) in the inventory
+            // plus a full n on the ground, while only n ever left the AI.
+            ItemStack toTake = stack.copy();
+            if (!player.getInventory().add(toTake)) {
+                player.drop(toTake, false);
             }
+
             steve.getInventory().removeItem(stack.getItem(), n);
             moved += n;
         }

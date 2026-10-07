@@ -9,6 +9,10 @@
   "aisteve.screen.main.capabilities": "AI Capabilities",
   "aisteve.screen.main.done": "Done",
 
+  "aisteve.gui.inventory.title": "%s's Backpack",
+  "aisteve.gui.inventory.empty": "The backpack is empty",
+  "aisteve.gui.inventory.readonly": "Read-only: the AI manages its own items (right-click empty-handed to reopen)",
+
   "aisteve.screen.llm.title": "Language Model API",
   "aisteve.screen.llm.hint": "Works with any OpenAI-compatible provider (scroll with the mouse wheel)",
   "aisteve.screen.llm.preset_hint": "§8Click to cycle presets - fills in the URL and model name",
@@ -70,7 +74,8 @@
   "aisteve.cmd.cleanup_done": "§aCleaned up %d AI entities (including leftovers from older builds). You can now use §b/as create§a again.",
   "aisteve.cmd.cleanup_none": "§7No AI entities needed cleaning up.",
   "aisteve.cmd.info_none": "§7No AI companion right now. Create one with §b/as create <name>§7.",
-  "aisteve.cmd.info": "§aAI companion: §e%s\n§7Position: §f%d, %d, %d\n§7Health: §f%d/%d\n§7Inventory: §f%s\n§7Current goal: §f%s",
+  "aisteve.cmd.info": "§aAI companion: §e%s\n§7Position: §f%d, %d, %d\n§7Health: §f%d/%d\n§7Food: §f%s\n§7Inventory: §f%s\n§7Current goal: §f%s",
+  "aisteve.cmd.food_off": "disabled ([agent].hunger = false)",
   "aisteve.cmd.idle": "idle",
   "aisteve.cmd.stopped": "§aStopped §e%s§a.",
   "aisteve.cmd.called": "§aCalled §e%s§a to your side.",
@@ -96,5 +101,6 @@
   "aisteve.event.duplicates": "§e[AiSteve] §fFound and cleaned up %d duplicate AI companions (this mod supports exactly 1).",
   "aisteve.event.adopted": "§a[AiSteve] §fTook over AI companion §e%s§f.",
   "aisteve.event.got_item": "Got the %s, thanks!",
-  "aisteve.event.bag_full_chat": "My bag is full..."
+  "aisteve.event.bag_full_chat": "My bag is full...",
+  "aisteve.event.knocked_down": "Knocked down by %s - give me a moment!"
 }

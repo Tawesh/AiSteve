@@ -1345,6 +1345,783 @@ jar 内容校验                     -> lang/*.json 与 agent/*.json 均已打�
 - **架构文档与现状文档目前只有中文**：英文读者暂时只能靠 README / CONTRIBUTING / CLAUDE.md
   里的摘要。补英文版属独立的翻译工作，尚未开始。
 
+---
 
+# 第十五阶段：合成数量与交付反馈
 
+> **玩家反馈原文**："这个模组存在一个 bug：合成的数量无法控制。当用户下达任务：比如我需要一个工作台。
+> 它会去找木头合成，但是没有默认合成一个，而是合成了多个，全部给了玩家，然后就会提示无法完成，这很矛盾。"
+>
+> 顺着这句话查下去，它不是"合成数量"这一个问题，而是**四个互相独立的缺陷**叠在一起：
+> 参数被静默丢弃、`give` 漏参数就交出全部、"已经给了却说做不了"、以及"自己造工作台"顺手吃掉本任务的料。
+> 前三条正好分别对应反馈里的"数量无法控制 / 全部给了玩家 / 提示无法完成"。
+>
+> 改动都落在**参数层与动作层**（`Task` / `CraftItemAction` / `GiveItemAction` / `SteveEntity`），
+> 因此两条路径都受益：默认的分层 Agent Runtime（`craft_item` / `give_item` → 动作队列）与
+> 旧的一次性 planner（`craft` / `give` 动作）走的是同一批动作实现。
+
+## 90. 【严重·逻辑】"数量无法控制"：模型写 `"quantity": "4"` 就等于没写
+
+**文件**：`action/Task.java`
+
+**现象**：玩家要 N 个，它只做 1 个；反过来"我要 1 个它做一堆"是另一条（第 92 条）。
+日志里没有任何异常 —— 因为它**根本没报错**。
+
+**根因**：`getIntParameter` 只认 `Number`：
+
+```java
+Object value = parameters.get(key);
+if (value instanceof Number) return ((Number) value).intValue();
+return defaultValue;                 // ← 字符串 "4" 直接落到默认值
+```
+
+而 `ResponseParser.parseTask` 会把 JSON 里的原始类型原样塞进参数表，于是模型写
+`{"quantity": "4"}`（在中文提示词下模型加引号非常常见）时，数量就被**静默替换成默认值 1**。
+参数表里数字在、日志里任务在、动作在跑，只有数量不见了 —— 这种 bug 最难查，
+因为它不产生任何错误信号。
+
+**修复**：从"类型判定"改成"强转"（`coerceInt`）：
+
+| 输入 | 结果 |
+| --- | --- |
+| `4` / `4L` / `4.0` / `4.6` | 4 / 4 / 4 / 5 |
+| `"4"` / `" 4 "` / `"4.0"` / `"4,000"` | 4 / 4 / 4 / 4000 |
+| `"4 个"` / `"x4"` | 4 / 4 |
+| `true` / `false` | 1 / 0 |
+| `null` / `""` / `"all"` / `"很多"` | 默认值 |
+
+**影响面**：所有数量参数一起修好 —— `craft`（quantity）、`mine`、`gather`、`farm`、`fish`、
+`attack`、`give`（count）、`explore`（distance）、`place`/`pathfind`（坐标）、`loot_container`（limit）。
+"参数被吃掉"这类坑不会只发生在合成上。
+
+## 91. 【严重·逻辑】"全部给了玩家"：`give` 漏写物品名 = 交出整个背包
+
+**文件**：`action/actions/GiveItemAction.java`
+
+**根因**：
+
+```java
+itemName = task.getStringParameter("item", "all");   // ← 默认 all！
+```
+
+模型漏掉 `item` 参数时不是报错，而是"把身上所有东西都给你"。叠加 `give_item` 工具说明里
+把 `all` 描述成"全部交出"，就变成了"只说了一句话，背包全倒给你"。
+
+**修复**：`item` 改为**必填**。缺失或空白 → 明确失败并说清原因
+（"没有告诉我要给你什么，我不乱塞东西：你想要哪个？"）。真的要全交，必须显式写 `all`
+（或 `count <= 0`）。
+
+## 92. 【严重·逻辑】"东西都给我了，它却说做不了"（两条独立原因）
+
+**(a) 重复交付被当成失败**
+
+`GiveItemAction` 在背包里没有目标物品时一律报 `ActionResult.failure("我身上没有 X，给不了玩家")`
+—— 可这条消息**在两种完全不同的情况下都会出现**：
+
+1. 我从来没有过 X → 真失败，应该重新想办法；
+2. 我刚才已经把 X 交给玩家了 → 目标其实**已经完成**。
+
+模型的计划经常把"合成 → 交付"重复一轮（重试、或 goal_update 之后又走一遍）。第二次交付时背包
+已经空了，于是：报失败 → 反思 → 重规划 → 三次之后播报"「XX」我暂时做不了"。
+玩家这边的体验就是反馈里的**"全给我了，又说做不了"**。
+
+**修复**：`SteveEntity` 增加一份会话级的交付记录
+（`recordGivingToPlayer` / `wasGivenToPlayerRecently`，窗口 2 分钟，最多 32 条）。
+再次交付同一物品而背包已空时，如实回答"刚才已经把 X 给你了，我身上现在没有了"，
+并按**已完成**（`ActionResult.partial`）处理 —— 不再触发重规划，也不会再播报"做不了"。
+
+> 这份记录刻意**不进 NBT**：它只用于消除"同一秒钟内重复交付"的歧义，重启后还留着反而会误报"已经给过"。
+
+**(b) "自己造一个工作台"吃掉了本任务的材料**
+
+`CraftItemAction.ensureCraftingTableAvailable()` 的老逻辑：3×3 配方附近没有工作台时，
+把背包里的木板做成工作台，**并放到世界上**。问题是那批木板很可能正是本任务要用的：
+
+```
+手上有 4 个木板，要做木镐（3 木板 + 2 木棍，且需要工作台）
+  ├ 老逻辑：4 木板 → 工作台 → 放地上
+  └ 真正合成时木板为 0 → "I'm missing materials for wooden_pickaxe"
+       → 反思 → 重规划 → 3 次后"我暂时做不了"
+```
+
+于是玩家看到的是：AI 一边播报"合成了 4 个木板"，一边宣告失败。这也是**"合成数量不受控"的观感来源**
+—— 为了做 1 件东西，额外吃掉了 4 个木板，而玩家完全不知道这 4 个木板去哪了。
+
+**修复**：造工作台之前先算**目标配方自己需要多少材料**
+（`targetMaterialsPerBatch()` × `batchesWanted`，按背包里**真实存在**的物品对应材料种类，
+因此任意木板/橡木木板这类标签材料都能算准），只有真正的余量才允许拿去做工作台；
+没有余量就如实失败："做 XX 需要一个工作台：附近没有现成的，而我手上这些材料得留着做它本身。
+先再弄点木头/木板给我吧" —— 交给反思层去要材料，跟真人玩家的顺序一致：**先备料，再打工作台**。
+
+## 93. 【可诊断性】把"配方每批产出"讲清楚
+
+**文件**：`action/actions/CraftItemAction.java`
+
+木板 / 木棍 / 火把这类配方是**一批出 4 个**。玩家要 1 个，聊天里却看到"合成了 4 个"，
+在没有任何解释的情况下，最自然的解读就是"数量失控"。
+
+现在：
+- 产出与需求不一致时补一句 ——"合成了 4 个 木板（你要 1 个，这个配方每批产出 4 个）"；
+- "背包里已经有了"的分支同时报出**已有多少 / 这次要多少**，而不是只说"不用再合成"；
+- 日志补上 `asked for N` 字段，排查时能立刻看出"想要"和"做了什么"是否一致。
+
+## 94. 【构建】源码是 UTF-8，编译却用平台默认编码
+
+**文件**：`build.gradle`
+
+**现象**：在中文 Windows（JVM 默认 GBK）上执行文档里的构建命令，
+`compileJava` 会刷出一屏 `unmappable character for encoding GBK`，指向几十个
+**与本次改动完全无关**的文件（`ActionExecutor`、`ExploreAction`、`AgentPromptBuilder`…），
+看起来像代码坏了。实际原因只是 javac 没有指定编码。
+
+**修复**：
+
+```gradle
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+```
+
+这条与游戏逻辑无关，但它决定了"**能不能验证**" —— 先修它，后面的验证才有意义。
+
+## 95. 【测试】第一个带断言的单元测试
+
+**文件**：`src/test/java/com/steve/ai/action/TaskTest.java`
+
+在此之前 `src/test` 全是空壳（`docs/STATUS.md` 里如实写着"没有实际断言"）。
+新增 6 个断言，专门盯住第 90 条这个回归：`4` / `4L` / `4.0` / `4.6` / `"4"` / `" 4 "` /
+`"4.0"` / `"4,000"` / `"4 个"` / `"x4"` / `"all"` / 缺省 / `true` / `false` 各自的取值。
+
+选它做第一个测试是有意的：**纯逻辑、不依赖 Minecraft 运行时**（毫秒级跑完，不需要启动游戏），
+而且正好是"数量失控"这个玩家可见问题的入口。
+
+## 96. 本阶段验证
+
+```
+gradlew compileJava                     -> BUILD SUCCESSFUL
+gradlew build -x test fatJar            -> BUILD SUCCESSFUL
+gradlew test --tests *TaskTest          -> 6 tests, 0 failures
+node scripts/check-lang.js              -> 4 份 JSON 合法，中英键位完全配对
+node scripts/check-keys.js              -> 引用 214 键，缺失 0
+node scripts/check-docs-lang.js         -> 7 份中文文档 + 3 份英文文档语言正确
+产物                                     -> build/libs/aisteve-1.0.0-all.jar
+```
+
+**未验证**：以上都是构建与纯逻辑层面的验证。游戏内的"我需要一个工作台"仍需实测确认，
+预期行为是 —— 砍木头 → 合成木板（并说明每批 4 个）→ 合成工作台 → 交给你；
+中途材料不够时**如实说需要更多木头**，而不是"先塞给你一堆东西、然后宣布做不了"。
+
+## 97. 已知边界（本阶段留下的）
+
+- **原版配方一批出 4 个时，"要 1 个"在物理上只能得到 4 个**。现在至少把原因说出来了，
+  但"按玩家要的数量精确产出"在原版配方体系下不可能做到 —— 这属于游戏规则，不是模组缺陷。
+- **交付记录是会话级的**，重启后"刚刚给过"的判断失效（刻意如此，避免误报）。
+- **动作层仍有玩家可见的硬编码字符串**：`ActionResult` 的 message 会经
+  `agent.narrate.cannot_do` 播报出去，按本仓库的两条本地化轨道，它们本应走 `AgentLang`。
+  这次只把新写/改动的那几句写成了中文，全量收敛属独立工作（英文玩家目前会看到中文的动作原因）。
+- **目标级去重仍然没做**：本阶段挡掉的是"同一个物品被重复交付"（交付记录）。
+  如果模型每轮都把同一件事当成**新目标**提交（`goal_update` 换个说法），理论上仍可能再合成一次，
+  只是不会再绕到"做不了"上。要彻底解决属于 `brain` 层的工作（目标去重 / 目标完成判据），
+  涉及优先级与自主行为的语义，不适合和这次的 Bug 修复混在一起动。
+
+---
+
+# 第十六阶段：背包可视（空手右击打开 AI 背包）
+
+> **需求原文**："我希望玩家手里没拿东西时，右击 AI 玩家可以打开 AI 玩家的背包，查看内容。"
+>
+> 在此之前，"它到底有什么"只有两条路：`/as info`（一行压缩文本，物品一多就看不清）或者挨个试。
+> 本阶段补上正式的容器界面。**空白手右击 → 只读背包窗口**；手持物品右击 → 仍然是原来的"交给它 1 个"。
+
+## 98. 【新功能】`menu` 层 —— 只读的 AI 背包容器
+
+**文件**：`menu/SteveInventoryMenu.java`、`menu/SteveInventoryContainer.java`（均新增）
+
+用**原版容器体系**实现，而不是自己画一个列表控件或往聊天框里刷文本 —— 这样槽位、悬浮提示、
+物品图标渲染、`E` 关闭、走远自动关闭全部由原版负责，模组只需要给出"槽位背后是什么"。
+
+**两侧用不同的 Container，这是本阶段最容易踩的坑：**
+
+| 侧 | 容器 | 为什么 |
+| --- | --- | --- |
+| 服务端 | `SteveInventoryContainer`（直读 `SteveInventory`） | 槽位每 tick 被 `broadcastChanges()` 轮询，于是**实时同步**：它在合成东西时，你看着物品一格一格出现，不需要任何变更通知机制 |
+| 客户端 | 普通 `SimpleContainer` | **必须可写**：`AbstractContainerMenu#initializeContents` 是把服务端发来的物品经 `Slot#set` **写回客户端容器**的。如果客户端也用只读容器，服务端发来的内容会被静默丢弃，窗口永远是空的 |
+
+**只读是刻意的**，并且做了两层保障：
+- 槽位重写 `mayPickup` / `mayPlace` 返回 `false`（原版在 `clicked` 与 `moveItemStackTo` 里先查这两项，
+  所以点击、Shift 点击都不会搬东西，也不会出现"拿着空气物品"的光标态）；
+- 容器本身把所有变更方法实现为**空操作**（而不是抛未实现异常），作为第二道防线。
+
+理由不是"懒得做"，而是它的背包正是它**自己干活时依据的状态**：`CraftItemAction` 会在真正扣材料
+之前先算出"这一批要扣哪些"，玩家中途把东西抽走会让这个计划对不上。给它东西、拿回东西各有明确通道
+（右键 / `/as give` / `/as take`），而且都会在聊天里回话。
+
+布局：4 行 × 9 格 = 36 格（对齐 `SteveInventory.MAX_SLOTS`），下面接玩家自己的 3 行 + 快捷栏，
+这样窗口看起来就是个普通容器。槽位坐标定义在菜单里的**公开常量**，屏幕照着画，视觉与真实槽位不会错位。
+
+## 99. 【新功能】注册 MenuType 与网络附加数据
+
+**文件**：`SteveMod.java`
+
+- 新增 `DeferredRegister<MenuType<?>> MENUS`（与 `ENTITIES` 分开，是另一个注册表），
+  在构造函数里一起挂到 mod event bus。
+- `STEVE_INVENTORY_MENU` 用 `IForgeMenuType.create(SteveInventoryMenu::fromNetwork)` 注册。
+
+为什么不用 `player.openMenu(provider)`（不带数据）就完事：客户端需要知道**打开的是哪一个实体的背包**。
+ `NetworkHooks.openScreen(player, provider, buf -> buf.writeVarInt(this.getId()))` 把实体 id 随窗口一起送过去，
+`IForgeMenuType` 的工厂就能在客户端读到它。
+
+**同时留了兜底**：`fromNetwork` 里如果缓冲区为空或读到的实体找不到，会退回"在客户端世界里找那个 AI"
+—— 本模组由 `SteveManager` 强制**同一时间只能有一个 AI**，所以"那个 AI"本身没有歧义。
+这样一来，即使附加数据的传递方式在某个 Forge 版本上变了，玩家看到的也只是"窗口照常打开"，
+而不是一个空白窗口。
+
+## 100. 【新功能】`SteveInventoryScreen` —— 程序化绘制的窗口
+
+**文件**：`client/gui/SteveInventoryScreen.java`（新增）
+
+继承 `AbstractContainerScreen` 拿到全部容器行为，但**不贴图**：背景和槽位用 `fill` 画出来，
+与本仓库既有的设置界面（`ScrollableSettingsScreen`）风格一致。原版能给的唯一贴图是"6 行大箱子"，
+形状不对（我们只要 4 行），还得把 Mojang 的美术资源重复打包一份进 mod。窗口尺寸也一并写死在
+菜单的公开常量里，避免"画的槽位"和"真实槽位"两处各写一套坐标。
+
+细节：
+- 背包为空时在格子里居中写一句"背包是空的" —— 空网格没有任何解释时，看起来像窗口坏了；
+- 底部一行只读说明（"只读窗口：东西归 AI 自己管"），避免玩家反复点击槽位以为是卡了；
+- 标题是 `aisteve.gui.inventory.title` + AI 名字，走 `Component.translatable`，
+  因此**每个客户端按自己的语言显示**（符合本仓库第 81-84 条确定的两条本地化轨道）。
+
+## 101. 【接入】空手右击 → 打开背包
+
+**文件**：`entity/SteveEntity.java`
+
+`mobInteract` 分成两支，行为完全由"手上有没有东西"决定：
+
+```
+手上有物品 → 交给它 1 个（原有行为，未改动）
+手上空着   → 打开只读背包窗口（新增）
+```
+
+实体侧新增 `openInventoryView(ServerPlayer)`，是唯一调用 `NetworkHooks.openScreen` 的地方。
+
+顺带确认了一条容易忽略的原版细节：`Minecraft#startUseItem` 会用**客户端**的交互结果
+（`consumesAction()`）决定是否继续尝试另一只手，因此客户端在 `mobInteract` 里返回 `SUCCESS` 是必要的，
+空手这一下才会就此结束，而不会漏到"使用物品"的分支上去。原代码在最上面就 `return SUCCESS`，
+这条行为本阶段保持不变。
+
+## 102. 【构建/文档】注册界面时踩到的一个版本差异
+
+**文件**：`client/ClientSetup.java`
+
+第一版用了 `RegisterMenuScreensEvent` —— 编译直接报"找不到符号"。核对 Forge 1.20.1 的
+`forge-1.20.1-47.2.0_mapped_official_1.20.1.jar` 后确认：**这个事件在 1.20.1 里根本不存在**
+（它是后续版本才加的），1.20.1 只有 `MenuScreens.register(...)`。最终改为在
+`FMLClientSetupEvent#enqueueWork` 里注册，并把这条差异写进了 `CLAUDE.md` 的
+"Add a container GUI"一节 —— 下次不必再靠试错发现。
+
+同一轮还顺手用 `javap` 核实了两件事，都不是猜的：
+- `MenuType#create(int, Inventory, FriendlyByteBuf)` 的字节码里会判断内部 `MenuSupplier`
+  是否为 `IContainerFactory`，是则**把缓冲区透传给工厂** → 附加数据机制成立；
+- `ServerPlayer` 里确实存在 `AbstractContainerMenu#broadcastChanges()` 与 `#stillValid(...)` 的调用点
+  → 实时同步与"走远自动关闭"都成立。
+
+## 103. 本阶段验证
+
+```
+gradlew compileJava                     -> BUILD SUCCESSFUL
+gradlew build -x test fatJar            -> BUILD SUCCESSFUL
+gradlew test --tests *TaskTest          -> 6 tests, 0 failures
+node scripts/check-lang.js              -> 4 份 JSON 合法，中英键位完全配对
+node scripts/check-keys.js              -> 引用 217 键，缺失 0
+node scripts/check-docs-lang.js         -> 7 份中文文档 + 3 份英文文档语言正确
+```
+
+新增语言键（两条轨道里的**模组 UI 轨道**，中英各 3 条，共 95 键/语言）：
+
+| 键 | 中文 | 英文 |
+| --- | --- | --- |
+| `aisteve.gui.inventory.title` | `%s 的背包` | `%s's Backpack` |
+| `aisteve.gui.inventory.empty` | `背包是空的` | `The backpack is empty` |
+| `aisteve.gui.inventory.readonly` | `只读窗口：东西归 AI 自己管（空手右击可再次打开）` | `Read-only: the AI manages its own items (right-click empty-handed to reopen)` |
+
+**未验证**：需要在游戏内右键确认的三件事 —— 窗口能否正常打开、物品是否随它的动作实时刷新、
+以及走远 8 格是否自动关闭。逻辑链路（容器两侧实现、`broadcastChanges`、`stillValid`）已按上面的
+字节码核对过，但**没有实际启动客户端验证过渲染效果**。
+
+## 104. 已知边界（本阶段留下的）
+
+- **只读**：槽位不能取、不能放、Shift 点击不搬运。理由见第 98 条（它的背包是动作计划的前置状态）。
+  要拿回来用 `/as take`（一次全取）—— "从窗口里只取出某几格"是有意义的后续需求，
+  但它需要先解决"取出的东西和正在进行的合成步骤怎么对账"，不适合顺手加。
+- **没有 `/as inv` 之类的远程打开方式**：本阶段只做了需求里说的"右击"。
+  服务器上远程查看仍需 `/as info`。
+- **窗口不会因它开始做事而自动关闭**，只是内容会实时变化。这是有意的：看着它一路把材料合成出来，
+  正是这个窗口的价值。
+
+---
+
+# 第十七阶段：数量对不上（"给了 4 个、背包还是 3 个"）
+
+> **玩家反馈原文**："它并没有说没有。而是我说给我一个工作台。我看了它背包里面有3个。但它给我四个。
+> 它的背包里面并没有减少一个。还是三个。"
+>
+> 这不是"数量算错"，而是**物品总数不守恒**：玩家拿到 4 个，AI 那边一个都没少。
+> 本阶段做了三件事：用字节码把能证明的东西证明掉、把**能给出去却不扣背包**的那条路径彻底封死、
+> 并把"先用背包里已有的材料"补上。**同时必须说明：我没有复现，这条修复是"封死可疑路径"而不是"锁定凶手"** ——
+> 依据见下面第 105 条，需要日志才能最终确认。
+
+## 105. 先排除掉两个嫌疑（都用字节码核实，不靠记忆）
+
+猜是不负责任的，所以直接读 Forge 1.20.1 映射后的字节码：
+
+**(1) 背包窗口是不是根本不刷新？** —— 不是。
+`AbstractContainerMenu#broadcastChanges()` 每 tick 遍历所有槽位，调用
+`synchronizeSlotToRemote(i, itemstack, supplier)`；后者与 `remoteSlots` 比对，
+只有**真的变了**才 `sendSlotChange`。也就是说：物品消失（3 → 2）属于"变了"，一定会推给客户端。
+**所以"窗口里还是 3"意味着服务端背包里真的是 3，不是显示没刷新。**
+
+**(2) `GiveItemAction` 会不会把放不下的东西复制一份？** —— 不会。
+`Inventory#add(int, ItemStack)` 的字节码里，存入后调用
+`ItemStack.setCount(addResource(...))`，即**就地消耗传入的堆**，返回值只表示"是否全部放下"。
+所以旧代码 `if (!stored) player.drop(toGive, false);` 掉的是**剩下的那部分**，总数守恒。
+（我原本怀疑这里复制了物品，核对后**排除了**这个假设，没有去改一个不是 bug 的地方。）
+
+> ⚠️ **这一条的结论是错的，已在第 109 条更正。** 当时我只问了"它是否复制了一份物品"，答案是"没有"，
+> 于是下了"总数守恒"的判断。但我漏掉了同一个特性带来的另一个后果：既然 `add` 会把堆消耗成"剩余量"，
+> 那么紧接着读 `toGive.getCount()` 得到的**不是交出去的数量，而是没放下的数量（正常路径上是 0）**。
+> 扣除数量与实际交付数量因此脱钩 —— 这正是本次要修的东西。**纠正记录比错误记录本身更有价值**，
+> 所以这里保留原文，只标注结论作废。
+
+## 106. 同一轮里另外一条能交付却不扣背包的路径：只读窗口
+
+上一阶段新加的背包窗口也是"能交付物品、又不动 AI 背包"的代码，问题出在两处：
+
+**(a) `getItem()` 返回的是背包里的真实 `ItemStack` 引用。**
+`AbstractContainerMenu#doClick` 的某些分支（最典型的是**数字键 / F 键的热键交换**）会
+`slot.getItem()` 拿到这个堆，然后**扩大玩家那一侧的堆**，而"从容器里扣掉"是另走
+`container.removeItem(...)` 完成的 —— 而我们的只读容器把 `removeItem` 实现成了空操作。
+两边一凑：**玩家拿到了东西，AI 背包原封不动**。
+
+**(b) 只靠 `mayPickup` / `mayPlace` 拦不住所有点击类型。**
+这两个标志表达的是意图，但它们只在原版"恰好检查了"的路径上生效。
+
+**修复（两层，都是"结构性"而非"我希望它生效"）：**
+
+1. `SteveInventoryMenu#clicked(...)` 直接覆盖：**任何指向 AI 那 36 格的点击，一律原样丢弃**，
+   在原版解释它之前就返回。所有点击类型（PICKUP / QUICK_MOVE / SWAP / THROW / DRAG / PICKUP_ALL …）
+   都必须经过这一层，所以这是硬保证。玩家自己的格子与"点到窗外"保持原版行为。
+2. `SteveInventoryContainer#getItem(...)` 改为**返回副本**。这样即使还有哪条我没读到的原版分支
+   拿着它去合并/改写，也碰不到真实背包。（没有额外开销：`broadcastChanges` 本来就要 copy 一次。）
+
+> 顺带纠正上一阶段文档里的一句错话：那里写着"返回引用是有意的，因为反正要 copy"。
+> 那个推理只考虑了同步路径，没有考虑**点击路径**会拿这个引用做别的事 —— 现在改成副本。
+
+## 107. 【功能】"先判断背包里有没有"——合成自己补中间材料
+
+反馈里"它不用自己背包里的东西、反而先去搞原料"是同一个问题的另一半，本阶段一并补上
+（**这是可以确定做到的部分**）：
+
+`CraftItemAction` 原先只检查**最终配方**的材料。于是"背包里有 4 根原木，要一把木镐"会被判成
+"缺 oak_planks / stick"，AI 就跑去砍树 —— 而它本来只要把原木切了就行。
+
+现在 `doWork()` 在材料不足时先调用 `craftMissingIngredients(...)`：
+
+- **只做配方真正需要的**材料（原木 → 木板 → 木棍），不做别的；
+- **深度受限**（3 层），保证结束；
+- 做 3×3 的中间配方**只在已有工作台时**才做 —— 不为了做中间材料再造一个台子；
+- 没有配方的材料（矿石、小麦…）不动手，如实报"缺什么"交给反思层。
+
+**工作台判定同时升级为干跑模拟**：`targetStillMakeableAfterTable(...)` 先模拟"扣掉 4 块木板做台子，
+目标还做不做得出来"，并且**会连多级链条一起算**（正好用上第 (1) 条新加的 `canMakeFrom`）。
+好处是"4 根原木 → 1 个工作台 + 1 把木镐"这种完全正当的做法不会再被误判成材料不够。
+干跑成功时会把消耗**就地**从模拟数量里扣掉，这样多个材料槽位才是真的在争同一批材料。
+
+## 108. 本阶段验证
+
+```
+gradlew compileJava                     -> BUILD SUCCESSFUL
+gradlew build -x test fatJar            -> BUILD SUCCESSFUL
+node scripts/check-lang.js              -> 4 份 JSON 合法，中英键位完全配对
+产物                                     -> build/libs/aisteve-1.0.0-all.jar
+```
+
+**我做到的**：用字节码排除了两个假设、论证了"窗口显示 3 就真是 3"、并把
+"能不扣背包就给物品"的路径从**结构和数据两层**封死。
+
+**我没做到的（必须说清楚）**：我**没有复现**这个现象，因此不能说"凶手就是它"。
+我只证明了两件事 —— 交付物品的旧代码是守恒的（第 105 条），以及窗口确实存在一条不守恒的路径（第 106 条）。
+如果你手上还有当时的存档，请把这两行日志发我，就能立刻确认是哪条路径触发的：
+
+```text
+# 1) 它到底"给"了多少、走的是哪条路：
+grep "gave" logs/latest.log            # Steve 'X' gave Nx minecraft:crafting_table to PLAYER
+
+# 2) 它在那前后有没有自己又合成过一个工作台（3 → 4 就说明是"多做了"，而不是"多给了"）：
+grep -E "CraftItemAction|crafted" logs/latest.log
+```
+
+---
+
+# 第十八阶段：数量对不上（真正的根因）
+
+> **玩家反馈**（第二次）："ai玩家给真人玩家的物品数量还是没控制住。我让它给它背包里面的一个。
+> 它全部给了。我查看它的背包。还是显示四个，并未扣减。"
+>
+> **这次抓到了，而且能证明。** 根因是我在上一阶段**亲手判错**的那一处（第 105 条）：
+> `Inventory#add` 会就地消耗传入的堆，而代码在调用**之后**才去读数量。
+
+## 109. 【严重·逻辑】`Inventory#add` 就地消耗堆 → 扣除数量恒为 0
+
+**文件**：`action/actions/GiveItemAction.java`
+
+**字节码证据**（不是记忆，是 `javap` 读出来的）：
+
+```
+public boolean add(ItemStack);          →  add(-1, stack)
+public boolean add(int, ItemStack);     →  stack.setCount(addResource(stack))
+```
+
+**`add` 会修改你传进去的那个 `ItemStack`**：调用后它只剩"没放下的部分"，而布尔返回值只表示
+"是否全部放下"。原代码的写法是：
+
+```java
+ItemStack toGive = stack.copy();                    // 4 个
+toGive.setCount(Math.min(toGive.getCount(), requestedCount - given));   // 想要 1 个 → 1 个
+boolean stored = player.getInventory().add(toGive);  // ← 玩家拿到 1 个，toGive 被消耗成 0 个
+if (!stored) player.drop(toGive, false);
+steve.getInventory().removeItem(toGive.getItem(), toGive.getCount());   // ← removeItem(item, 0)！
+given += toGive.getCount();                                             // ← given += 0
+```
+
+**三个症状同时出自这一处**，正好对上玩家的两轮反馈：
+
+| 症状 | 机制 |
+| --- | --- |
+| **背包没扣减** | `removeItem(item, 0)` 什么都不扣 → 物品在被送给玩家的同时**还留在原地**（复制） |
+| **"让它给一个，它全给了"** | `given` 恒为 0，于是 `given >= requestedCount` 这个"够了就停"的条件**永远不成立**，循环把每一种匹配的堆都发一遍 |
+| **"然后就会提示无法完成"** | `giveTo` 返回 0 → 调用方判定失败 → 反思 → 重规划 → 模型再给一次 → **每重试一轮再多给一份** |
+
+第三行还解释了最早那条反馈里"全给我了，却说做不了"的自相矛盾：
+**它确实在给，同时它认为自己没给成。**
+
+**修复**：在调用之前把数量定下来，并用**实际扣除的数量**记账。
+
+```java
+Item item = stack.getItem();
+int amount = Math.min(stack.getCount(), requestedCount - given);   // 先定数量
+ItemStack toGive = stack.copyWithCount(amount);                    // 给副本
+boolean stored = player.getInventory().add(toGive);                // add 会吃掉这个副本
+if (!stored) player.drop(toGive, false);                           // 掉的是副本里剩下的那部分
+int removed = steve.getInventory().removeItem(item, amount);       // 扣的就是说好的数量
+given += removed;                                                  // 记账用实际扣掉的
+```
+
+这样"想要几个"与"扣掉几个"、以及"给出去几个"三者永远一致；`given` 也终于会增长，
+所以"给够了就停"能正常生效。
+
+## 110. 同类缺陷：`/as take` 会把东西给玩家两遍
+
+**文件**：`command/AsCommands.java`
+
+同一个特性造成的另一个 bug，而且更明显：
+
+```java
+if (!player.getInventory().add(stack.copy())) {
+    player.drop(stack.copy(), false);        // ← 又是一个全新的整堆
+}
+```
+
+`add` 返回 false 时，它已经把"放得下的那部分"塞进玩家背包、并把传入的堆消耗成"剩余量"；
+这里却又掉了一个**完整的整堆**。结果：玩家背包里拿到 `n - 剩余`，脚下再拿到 `n`，
+而 AI 那边只扣了 `n` —— **凭空多出 `n - 剩余` 个**。
+
+**修复**：掉的就是那个已经被消耗过的堆。
+
+```java
+ItemStack toTake = stack.copy();
+if (!player.getInventory().add(toTake)) {
+    player.drop(toTake, false);   // toTake 此时只剩没放下的部分
+}
+```
+
+## 111. 复盘：上一阶段我为什么判错（以及为什么保留错误记录）
+
+第 105 条写着"核查后**排除**了 `GiveItemAction`"，结论作废。错在**问题问偏了**：
+
+- 我问的是"**它有没有复制一份物品？**" → 按字节码答"没有复制"（`add` 是消耗式的）→ 正确；
+- 于是顺势得出"**总数守恒**" → **错误**。因为"消耗式"这个特性还有另一半后果：
+  消耗之后再去读 `getCount()`，读到的已经不是交付量了。
+
+**教训**：核查一个 API 的副作用时，要顺着"这个副作用会影响**所有**读它的地方"往下追一遍，
+而不是只回答最初那个假设。只验一半，比不验更危险 —— 它会让人放心地去别处找 bug。
+这次把原文保留、只标注作废，而不是删掉重写：错误结论和它的错因，对后来的人比一句干净的"已修复"更有用。
+
+## 112. 本阶段验证
+
+```
+gradlew compileJava                     -> BUILD SUCCESSFUL
+gradlew build -x test fatJar            -> BUILD SUCCESSFUL
+node scripts/check-lang.js              -> 4 份 JSON 合法，中英键位完全配对
+产物                                     -> build/libs/aisteve-1.0.0-all.jar
+```
+
+**为什么没有加单元测试**：这次的缺陷是"在调用一个会修改参数的 API 之后才读该参数"，
+属于**调用顺序**问题，而不是我们自己的算术逻辑。要覆盖它必须跑真实的 `Inventory`/`ItemStack`，
+即需要完整的 Minecraft 运行时 —— 现有的纯逻辑测试框架（第 95 条的 `TaskTest`）做不到，
+硬凑一个抽象层的测试只会给人"已经被覆盖"的错觉。所以我改为把这个陷阱写进
+`CLAUDE.md` 的 **1.20.1 gotchas** 一节（连同容器的活引用陷阱），让规范挡住它，而不是假装测住了。
+
+**可以预期的行为（等你实测确认）**：
+- "给我一个" → 聊天里回"给了玩家 1 个 …"，背包 4 → 3，不再有重复交付与"做不了"；
+- 给的时候玩家背包满了 → 放不下的落在你脚边，AI 那边仍然按说好的数量扣；
+- `/as take` → 拿回来的总数与它背包里减少的总数一致，不会凭空变多。
+
+---
+
+# 第十九阶段：隔山打牛（隔着土直接挖到煤）
+
+> **玩家反馈原文**："现在ai玩家取东西时隔空取物的类似于隔山打牛。比如我让它做火把。
+> 煤矿是藏到土里的。它直接跳过挖土，直接挖煤了。"
+>
+> 这次是**采掘完全没有"看得见才挖得到"这一层判断**：只要距离够近，方块就直接被摧毁，
+> 中间的土/石根本不存在。
+
+## 113. 【严重·真实性】`harvest` 只查距离，不查视线
+
+**文件**：`action/actions/MineBlockAction.java`
+
+原代码的判定只有两个数：
+
+```java
+if (horizontal > REACH || dy > VERTICAL_REACH) {   // 4.5 格水平 / 5 格垂直
+    steve.getNavigation().moveTo(...);
+    return;
+}
+harvest(next);        // ← 直接摧毁，没有"看得见吗"这一步
+```
+
+而 `findSomethingToCollect()` 扫的是**以 AI 为中心、半径 24 格、向下 12 格**的整块长方体，
+`getBlockState(pos)` 直接读穿地形。于是：
+
+```
+煤埋在 AI 旁边 2 格深的土里
+  → 扫描直接"看见"了这块煤（因为它读的是方块本身，不是视线）
+  → 走过去，距离 ≤ 4.5，通过
+  → harvest() 把煤挖掉，Block.getDrops 的掉落直接进背包
+  → 土还在原地
+```
+
+**这就是"隔山打牛"** —— 从 AI 的视角看，它是"取"了一件东西，而不是"挖"了一件东西。
+严格说这不只是观感问题：它绕过了原版"先挖开覆盖层"的物理规则，等价于隔空取物。
+
+同一条缺失也存在于 `harvestAdjacentTargets()`（分支挖矿）：它把 ±2 范围内的目标方块一律收走，
+**包括隔着岩壁、隧道还没挖到的那一块**。
+
+## 114. 修复：射线检查 + 先挖开覆盖层
+
+**判定"看得见"用的是原版射线检测**，不是自己写几何：
+
+```java
+private boolean canSee(BlockPos pos) {
+    Vec3 eye = steve.getEyePosition(1.0F);
+    BlockHitResult hit = steve.level().clip(new ClipContext(eye, Vec3.atCenterOf(pos),
+        ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, steve));
+    return hit.getType() == HitResult.Type.BLOCK && hit.getBlockPos().equals(pos);
+}
+```
+
+问的就是玩家用眼睛回答的那个问题：**我第一眼看到的是不是它**。流体用 `Fluid.NONE`
+（水下挖矿本来就很正常，不该算"看不见"）。
+
+**`tickSurface` 的流程变成"看得见才挖，看不见就先挖挡路的那块"**：
+
+```java
+if (!canSee(next)) {
+    BlockPos cover = firstBlockInSight(next);      // 视线第一个撞上的方块
+    if (cover != null && !cover.equals(next) && !cover.equals(stevePos)) {
+        if (withinMiningReach(cover)) {
+            harvest(cover);                        // 先挖开这层土/石（不计入产出）
+        } else {
+            // 够不着挡路的那块：先走到目标那一列，别站着干等
+            steve.getNavigation().moveTo(next.getX() + 0.5, stevePos.getY(), next.getZ() + 0.5, 1.1);
+        }
+        return;
+    }
+    // 射线没命中任何方块（例如视线被自己身体挡住）→ 走常规流程
+}
+```
+
+于是"煤在土下"会变成一连串**真实**的动作：**挖土 →（下一 tick）煤露出来了 → 挖煤 → 计入产出**。
+符合真人顺序，也让日志第一次能讲清楚它到底在挖什么：
+
+```text
+Steve 'X' clearing dirt to get at coal_ore
+Steve 'X' collected coal_ore at (123,64,-456) (1/8)
+```
+
+**计数规则也一并修正**：`harvest(...)` 现在只在被打掉的方块**就是目标方块**时才 `collectedCount++`。
+开路挖掉的泥土/石头是"进度"但不是"产出" —— 否则"挖 8 个煤"会被一堆泥土凑数凑满。
+
+**搜索也改了**（`findSomethingToCollect`）：
+
+- 优先**看得见**的目标；
+- 看不见但**在 8 格以内**的，作为"挖过去"的候选；
+- 每个候选先做一次**极便宜的**"是否挨着空气"检查（`isAir` / `canOcclude`），
+  只有通过的才做射线检测，并且单次搜索的射线次数有上限。
+  于是 24 格半径的整块扫描依然是廉价的方块查询，不会因为加了视线检查而卡。
+
+**兜底不变**：真的既挖不到也走不过去时，矿石仍然回落到**楼梯式下挖**（`startUnderground`），
+非矿石则如实说"附近没有能挖到的 X（都被埋着的话得先挖过去）"，而不是硬挖。
+
+## 115. 顺带说明：这些东西**故意没改**
+
+- **挖方块仍然是瞬时的**（没有原版挖掘耗时）。这是既有的刻意简化，不是这次反馈的问题；
+  改成逐 tick 计时会牵动所有动作的节奏，风险远大于收益。
+- **`MineBlockAction` 在挖楼梯/分支时仍然用 `teleportTo` 在自挖的隧道里前进**。
+  这与 `ARCHITECTURE.md` "位移只能走 `MovementController`" 的规则不一致，是一个**已知的历史遗留**，
+  但它是"把自己挪进刚挖出来的那一格"，不是隔山打牛，所以这次没有一并动它 ——
+  免得为了合规把最常用的挖矿功能改坏。记录在案，留给专门的一次改动。
+- **树仍然会掉几片叶子**：被树叶挡住的树干，现在会先把叶子挖掉（叶子不计入木头产出）。
+  相比"穿过树叶取木头"，破坏几片叶子是更接近真人、代价更小的选择。
+
+## 116. 本阶段验证
+
+```
+gradlew clean compileJava               -> BUILD SUCCESSFUL（新 API 均非弃用：已用 javap -v 核对 clip / canOcclude）
+gradlew build -x test fatJar            -> BUILD SUCCESSFUL
+node scripts/check-lang.js              -> 4 份 JSON 合法，中英键位完全配对
+node scripts/check-docs-lang.js         -> 7 份中文文档 + 3 份英文文档语言正确
+产物                                     -> build/libs/aisteve-1.0.0-all.jar
+```
+
+**没加单元测试，理由同上一阶段**：射线检测需要真实的 `Level`/`BlockGetter`，
+纯逻辑测试框架覆盖不了。这次的规则写进了 `CLAUDE.md` 的核心铁律
+（"AI 只能影响它看得见、够得着的东西"），并同步了 `docs/STATUS.md` 与
+`docs/USAGE.zh-CN.md` 的能力表。
+
+**另外修正了一处文档结构问题**：上一阶段的第十七、第十八两节因为插入锚点相同而顺序颠倒，
+已用一次性脚本物理换位（脚本执行后即删除，未留在仓库里）。
+
+---
+
+# 第二十阶段：让它"活着"（生命值、饱食度、以及被打倒而不是无敌）
+
+> **玩家需求原文**："我希望生成的ai玩家是有生命值的，和真人玩家一样，有饱食度，需要进食。
+> ai玩家有默认的属性，就是保护真人玩家…然后就是ai玩家应该能使用某些特殊方块，举个例子：船…"
+>
+> 四件事里，**"保护玩家"其实早就实现了**（`onLivingHurt` → `PROTECT` 目标）；
+> 真正的缺口是另外两件：AI 是**完全无敌的**，所以保护是单向的；以及**没有真实饥饿**。
+> 本阶段做掉这两件，并如实说明第三件（交通工具）还没做。
+
+## 117. 【严重·真实性】"AI 完全无敌"—— 生存闭环有一半是装饰
+
+`docs/STATUS.md` 一直把这条列为**最大的语义不一致**，本阶段修掉：
+
+```java
+// 旧代码
+@Override public boolean hurt(DamageSource source, float amount) { return false; }
+@Override public boolean isInvulnerableTo(DamageSource source) { return true; }
+```
+
+代价不只是"不会死"：`Needs.SAFETY`、`SURVIVE` 目标、`flee` 工具、"血量不足先撤"这些分支
+**永远不可能被一次真实的攻击触发**（只能由"附近有敌对生物"间接触发，那是间接的）。
+换句话说，代码里有一整块逻辑从来没被真正执行过。
+
+**修复**：`hurt()` 恢复正常伤害流程，并在受伤时做两件事：
+
+- 血量掉到 1/3 以下 → 发 `LOW_HEALTH` 事件（这是唤醒思考循环的信号）；
+- 每次受伤 → 发新的 `AGENT_HURT` 事件进工作记忆（**故意不设 `wakesBrain`**：
+  真正该唤醒的是 `LOW_HEALTH`，两个唤醒信号只会让同一件事花两次 token）。
+
+建造/飞行期间的临时无敌（`setInvulnerableBuilding`）保留，并额外保证：
+当 `[agent].invulnerable = true` 时，这个临时护盾**只会加不会撤**。
+
+## 118. 【新功能】真实饱食度 —— 用原版 `FoodData`，不是自造的计数器
+
+原先只有一个放在 `Needs` 里的 0~100 启发式数字，只会随时间上涨，`SelfObserver` 报告
+`food = -1`（"不适用"）。它不会真的饿，更不会因为挨饿掉血。
+
+**关键发现**：`FoodData` 在 1.20.1 里只是**挂在 `Player` 上**，但这个类本身是可以直接
+`new` 的普通类。所以 `SteveEntity` 可以自己拥有一个 —— 这就拿到了**真实营养值**：
+`eat(item, stack)` 会去读物品的 `FoodProperties`，所有原版/模组食物都自动正确。
+
+唯一不能复用的是 `FoodData#tick(Player, boolean)`（它需要 `Player` 来查创造模式），
+于是 `tickHunger()` 用它的公开 API 把同样的规则重述一遍：
+
+| 规则 | 实现 |
+| --- | --- |
+| 走路消耗 | 寻路中每 tick 累加 exhaustion（原版每米 0.1；自己走路按一半计） |
+| 饱食回血 | `food >= 18` 且血量不满 → 每 4 秒回 1 点 |
+| 半饱回血 | `food >= 6` 且有饱和度 → 每 16 秒回 1 点 |
+| 饿到 0 | 每 4 秒掉 1 点血（原版节律） |
+
+饱食度写进实体的 NBT（`FoodData` 自带 `addAdditionalSaveData` / `readAdditionalSaveData`），
+**重启后还在**。
+
+**顺带修掉一个真 bug**：`UseItemAction.useOnSelf()` 原先**吃掉整叠**（`removeOneStack`）
+并且**直接 `heal(nutrition)`** —— 8 个面包一口没了，而且完全绕开饱食度。
+现在改成：取整叠 → 吃 **1** 个 → 剩下的放回背包；回血交给正常的饱食回血，不再凭空加血。
+
+## 119. 【配置】三个新开关（默认值即"像真人一样"）
+
+| 配置 | 默认 | 含义 |
+| --- | --- | --- |
+| `[agent].invulnerable` | `false` | `false` = 有真实生命值；`true` = 旧的永久无敌 |
+| `[agent].hunger` | `true` | 是否有真实饱食度 |
+| `[agent].respawnAfterDeath` | `true` | 见下条 |
+
+**关于"死亡"的取舍（我做了一个保守的选择，请按需改）**：把一个会死的同伴加进别人的存档，
+是有破坏性的 —— 它可能带着玩家刚给的东西消失。所以默认语义是**被打倒，而不是消失**：
+
+```
+致命一击 → 保留 1 点血、熄灭身上的火、清空药水效果，原地缓过来
+          不治疗、不传送 —— 它就在原地剩一口气，等自己的生存行为把它带回你身边
+```
+
+`respawnAfterDeath = false` 才是真死：调 `SteveInventory#dropAll()` 让背包掉出来
+（原版 `Mob#die` 根本不认识这个自定义背包，不写这一句玩家的东西会凭空消失），
+发 `AGENT_DIED` 事件，然后真的死掉。
+
+这样"有生命值"是成立的（会掉血、会被打倒、会饿死），但**不会永久失去 AI**。
+
+## 120. 感知与能力边界同步
+
+- `SelfObserver` 现在报告**真实**饱食度；`hunger = false` 时仍报 `-1`（诚实地说"没有这条"）。
+- `Needs.HUNGER` 直接由真实饱食度推导，不再自己累加。
+  `onAte()` 保留但只做"刚吃过"的即时重置 —— 因为下一个感知周期就会用真值覆盖它。
+- `/as info` 增加一行**饱食度**（未启用时显示"未启用（[agent].hunger = false）"），
+  这是玩家验证这套机制最直接的地方。
+
+## 121. 本阶段验证
+
+```
+gradlew clean compileJava               -> BUILD SUCCESSFUL
+gradlew build -x test fatJar            -> BUILD SUCCESSFUL
+node scripts/check-lang.js              -> 4 份 JSON 合法，中英键位完全配对
+node scripts/check-keys.js              -> 引用 219 键，缺失 0
+node scripts/check-docs-lang.js         -> 7 份中文文档 + 3 份英文文档语言正确
+产物                                     -> build/libs/aisteve-1.0.0-all.jar
+```
+
+新增语言键：`aisteve.event.knocked_down`、`aisteve.cmd.food_off`（中英各一条）。
+
+**API 都按字节码核对过**，不是凭记忆：`FoodData` 的 `eat(Item, ItemStack)` 返回 **void**
+（不是 boolean，我第一版就写错了）；`FoodData` 确有 `addAdditionalSaveData` /
+`readAdditionalSaveData`；`ItemStack#isEdible()` 存在（比 `getFoodProperties() != null` 更准确）；
+`DamageSource` 上取伤害名要用 `getMsgId()`，没有 `getType()`。
+
+## 122. 已知边界与**未完成项**
+
+**未完成（原需求四件里的第三件）**：**AI 还不会上下船/矿车**。这是独立的一块能力 ——
+需要新增一个工具（上下载具）、处理骑乘时的寻路抢占、以及明确的触发方式（玩家说"上船"）。
+它没做，所以没有写半个占位实现：任务列表里那条仍是 `pending`。
+
+**已做但值得你注意的取舍**：
+- **保命优先于护人**：AI 会受伤之后，血量低时 `Needs.SAFETY` 会压过 `PROTECT` ——
+  它可能在你被打时选择先撤。这是有意的优先级（死人护不了人），但如果你希望它"任何情况下都硬顶"，
+  需要单独加一个策略开关，目前没有。
+- **被打倒会清空药水效果**：`removeAllEffects()`，和"倒下一次"的语义一致。
+- **`AGENT_HURT` 不唤醒思考循环**：唤醒由 `LOW_HEALTH` 负责（见第 117 条的说明）。
+  顺带记一笔：`AgentEvent#wakesBrain` 这个字段**在整个代码库里其实没有任何消费者**，
+  是既有的装饰性设计。本阶段没有去动它（属于另一件事），但至少保证新加的事件不让它撒谎。
 

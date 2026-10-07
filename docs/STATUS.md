@@ -64,8 +64,8 @@
 
 | 能力 | 实现程度 |
 | --- | --- |
-| 挖矿 | ✅ 地表就近采集；矿石可**楼梯式下挖到目标 Y 层再分支挖矿**；砍树自动砍整棵 |
-| 合成 | ✅ 走**真实配方系统**（`RecipeManager`），正确支持标签材料；需要工作台时**自己造一个** |
+| 挖矿 | ✅ 地表就近采集；**只挖看得见的方块**（`ClipContext` 射线检查），埋着的先挖开覆盖层（不计入产出）；矿石可**楼梯式下挖到目标 Y 层再分支挖矿**；砍树自动砍整棵 |
+| 合成 | ✅ 走**真实配方系统**（`RecipeManager`），正确支持标签材料；`quantity` 指"最终想要几个"，按差额补足；需要工作台但附近没有时，会用**用不到的那部分**材料自己造一个并放下 |
 | 战斗 | ✅ 可指定具体生物或 `hostile`；可指定数量 |
 | 翻箱子 | ✅ 箱子/木桶/熔炉/潜影盒/漏斗 |
 | 钓鱼 | ✅ 原版概率掉落（鱼/垃圾/宝藏） |
@@ -77,6 +77,7 @@
 ### 1.4 交互与人格 / Interaction & persona
 
 - ✅ `/as` 指令族：`create` `remove` `cleanup` `info` `agent` `goals` `memory` `stop` `come` `say` `give` `take`
+- ✅ **右键交互**：手持物品 → 交给它 1 个；**空手 → 打开它的背包窗口**（只读，走远自动关闭）
 - ✅ **听得见普通聊天**（48 格内），不只是 `/as say`
 - ✅ **进度播报**：开工说计划、完成报结果、失败讲原因，节流 30 tick
 - ✅ **主动说话**：最多每 90 秒一句，按处境生成（附近有怪 / 天黑 / 背包空 / 有动物）
@@ -88,10 +89,12 @@
 ### 1.5 界面与配置 / GUI & config
 
 - ✅ 设置界面（K 键）：大模型配置 / 权限与行为 / 能力开关，**均可滚动**
+- ✅ **背包窗口**：空手右击 AI 打开，36 格只读（物品可看可达悬浮提示，不可取放），
+  与它背包的实时变化同步（它在合成东西时，你看着它一格一格出现）
 - ✅ 行为类设置**改完立即生效**，无需重启
 - ✅ 多 provider：deepseek / openai / groq / gemini
 - ✅ 容错：熔断、重试（指数退避）、限流、缓存、规则降级
-- ✅ 中英文本地化（`zh_cn.json` / `en_us.json`，92 键）
+- ✅ 中英文本地化（`zh_cn.json` / `en_us.json`，95 键）
 
 ### 1.6 语言适配 / Language
 
@@ -102,8 +105,8 @@
 | 界面 / 指令 / 按键 | `Component.translatable`（客户端解析） | ✅ 每个客户端各自适配，**无需配置** |
 | AI 说的话 | `AgentLang`（服务端渲染） | ✅ 跟随**跟它说话的玩家**的语言 |
 
-- ✅ 四个设置界面、全部 `/as` 指令反馈、登录提示均已本地化
-- ✅ AI 播报、闲聊、技能叙述、工具结果、反思原因均已本地化（127 键 × 2）
+- ✅ 四个设置界面、全部 `/as` 指令反馈、登录提示、背包窗口均已本地化
+- ✅ AI 播报、闲聊、技能叙述、工具结果、反思原因均已本地化（125 键 × 2）
 - ✅ 提示词注入输出语言指令，示例也按语言切换
 - ✅ `/as lang [zh_cn|en_us]` 手动指定；设置界面可切换；`[agent].language` 配置项
 - ✅ 两个校验脚本（`scripts/check-lang.js`、`check-keys.js`）防止漏配键
@@ -148,7 +151,7 @@
 
 | 未实现 | 说明 |
 | --- | --- |
-| **单元测试** | `src/test/` 下 **4 个测试类全部是 `// TODO: Add test implementation` 空壳**。也就是说 `./gradlew test` 什么都不会验证。 |
+| **单元测试** | `src/test/` 下 4 个测试类里，**只有 `TaskTest`（6 个断言）是真的**，其余 3 个仍是 `// TODO: Add test implementation` 空壳。`./gradlew test` 目前主要验证参数强转这一条链。 |
 | CI / CD | 无 GitHub Actions。`build` 与 `fatJar` 全靠本地手工跑。 |
 | 自动发布 | 无 Release 流程，jar 手动上传。 |
 | Fabric / NeoForge 支持 | **仅 Forge**。`ARCHITECTURE.md` 描述的适配层解耦尚未真正抽离。 |
@@ -159,22 +162,27 @@
 
 > 与上一节不同：这些**功能存在**，但实现得不够好，或者会在某些情况下出问题。
 
-### 1. 🔴 AI 完全无敌 —— "生存"闭环有一半是装饰
+### 1. ✅ 已修复：AI 的生命值与饱食度（原"AI 完全无敌"）
 
-`SteveEntity` 里：
+**原问题**：`SteveEntity` 里 `hurt()` 直接 `return false`、`isInvulnerableTo()` 直接
+`return true`，于是 `Needs.SAFETY`、`SURVIVE` 目标、`flee` 工具、"血量不足先撤"这些分支
+**永远不会被真实伤害触发**，战斗是单向的，与"像真人一样玩"直接冲突。
 
-```java
-@Override public boolean hurt(DamageSource source, float amount) { return false; }
-@Override public boolean isInvulnerableTo(DamageSource source) { return true; }
-```
+**现已改为**（默认值）：
 
-**后果**：它不会掉血、不会死。于是：
-- `Needs` 里的 `SAFETY`、`SURVIVE` 目标、`flee` 工具、"血量不足先撤"的分支，
-  **永远不会被真实的受伤触发**（只能由"附近有敌对生物"间接触发）。
-- 战斗是单向的 —— 苦力怕炸它、骷髅射它，都没有任何后果。
-- 与"像真人一样玩"的目标直接冲突：真人会死。
+| 配置 | 默认 | 效果 |
+| --- | --- | --- |
+| `[agent].invulnerable` | `false` | 有真实生命值：会掉血、会饿死、会被打倒 |
+| `[agent].hunger` | `true` | 真实饱食度（原版 `FoodData`，用物品真实营养值）；吃饱回血、饿到 0 掉血 |
+| `[agent].respawnAfterDeath` | `true` | 致命一击时**被打倒而非消失**（保留 1 点血、原地缓过来）；`false` 则真死并掉落背包 |
 
-**这是当前最大的一处语义不一致**，修它需要同时处理死亡、掉落、重生与记忆延续。
+留下的**真实不足**（不是"没做"，而是"这样做"）：
+
+- **攻击性永远由 `Needs` 权衡**：AI 会受伤之后，血量过低时 `SAFETY` 会压过 `PROTECT`
+  （保命优先于护人）。也就是说它可能在你被打时选择先撤 —— 这是有意的优先级，
+  但确实会让人觉得"不够义气"。想让它在任何情况下都硬顶，需要单独的策略开关。
+- **被打倒会清空所有药水效果**（`removeAllEffects`），且不治疗、不传送 ——
+  它就在原地剩一口气，等自己的生存行为把它带回你身边。
 
 ### 2. 🔴 铁器链条断裂（对应 2.1 第 1 条）
 
@@ -251,6 +259,7 @@
 2. **让 AI 可以受伤/死亡**（可配置），并处理掉落、重生、记忆延续。
    或者至少在文档与 UI 上明确"AI 无敌"是设计选择，而不是遗漏。
 3. **补上单元测试**：从纯逻辑类开始成本最低 ——
+   已有 `TaskTest`（参数强转）作为第一个样本，接着是
    `AgentDecisionParser`（JSON 修复）、`Reflection`（状态码映射）、
    `Needs` / `GoalManager`（优先级推导）、`SemanticMemory`（检索排序）。
 
@@ -288,8 +297,10 @@
 ```
 ./gradlew compileJava             → BUILD SUCCESSFUL
 ./gradlew build -x test fatJar    → BUILD SUCCESSFUL
+./gradlew test --tests '*TaskTest' → 6 tests, 0 failures
 node scripts/check-lang.js        → 4 份语言包合法，中英键位完全配对
-node scripts/check-keys.js        → 引用 214 键，缺失 0
+node scripts/check-keys.js        → 引用 217 键，缺失 0
+node scripts/check-docs-lang.js   → 英文文档无中文；7 份中文文档语言正确
 ```
 
 产物 / Artifacts:
@@ -305,7 +316,7 @@ node scripts/check-keys.js        → 引用 214 键，缺失 0
 
 | 项目 | 原因 |
 | --- | --- |
-| `./gradlew test` | 测试全是空壳，**没有实际断言** |
+| `./gradlew test` | 只有 `TaskTest` 有真实断言；其余三个测试类仍是空壳 |
 | 多人服务器环境 | 未在 dedicated server + 多玩家场景下长时间运行 |
 | 长时间稳定性 | 未做数小时连续运行的观察 |
 | 除 DeepSeek 外的 provider | 代码路径存在且有容错，但**未经本项目实测** |

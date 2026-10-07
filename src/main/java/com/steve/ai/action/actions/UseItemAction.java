@@ -219,21 +219,38 @@ public class UseItemAction extends BaseAction {
         steve.swing(InteractionHand.MAIN_HAND, true);
 
         if (item.isEdible()) {
+            // Take the stack, eat exactly one, and put the rest back.
+            //
+            // This used to remove the WHOLE stack and heal by the food's nutrition directly:
+            // a stack of 8 bread vanished in one bite, and hunger was never involved at all.
+            // Now the item's real nutrition feeds the AI's food bar, and health comes back the
+            // way it does for a player - through the normal regeneration that a full bar gives.
             ItemStack stack = steve.getInventory().removeOneStack(item);
             if (stack.isEmpty()) {
-                result = ActionResult.failure("I don't have " + item + " anymore");
+                result = ActionResult.failure("我身上没有 " + item + " 了");
                 return;
             }
-            var food = stack.getItem().getFoodProperties();
-            if (food != null) {
-                steve.heal(food.getNutrition());
+
+            boolean ate = steve.eat(stack);
+            if (!stack.isEmpty()) {
+                int leftover = steve.getInventory().addItem(stack);
+                if (leftover > 0) {
+                    steve.spawnAtLocation(stack.copyWithCount(leftover));
+                }
             }
-            SteveMod.LOGGER.info("Steve '{}' ate {}", steve.getSteveName(), item);
-            result = ActionResult.success("Ate " + item);
+
+            if (!ate) {
+                result = ActionResult.failure("我不太会吃 " + item);
+                return;
+            }
+
+            SteveMod.LOGGER.info("Steve '{}' ate {} (food now {}/20)",
+                steve.getSteveName(), item, steve.getFoodData().getFoodLevel());
+            result = ActionResult.success("吃掉了一个 " + item);
             return;
         }
 
-        result = ActionResult.failure("I can't use " + item + " on myself");
+        result = ActionResult.failure("我不能对自己使用 " + item);
     }
 
     // ------------------------------------------------------------------

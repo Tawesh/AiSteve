@@ -232,6 +232,12 @@ Talk to it in ordinary language — you do not need to memorise syntax.
 **`/as give` is the main way to equip it.** Whatever is in your hand goes to it — a flint
 and steel, a fishing rod, building materials.
 
+**To see what it is carrying: right-click it with an empty hand.** That opens its backpack
+(4 rows, 36 slots) with normal tooltips. The window is read-only - its bag is the very state its
+own actions plan against, so pulling items out mid-step would desync that plan - which is why
+taking things back goes through `/as take` and handing things over goes through the right-click
+or `/as give`. Walking more than 8 blocks away closes the window.
+
 ### In-game settings (K key)
 
 | Page | Contents |
