@@ -8,7 +8,7 @@
 > intentions. If something here disagrees with your testing, please open an
 > issue with a log excerpt — the document is then wrong and should be fixed.
 >
-> 最后更新 / Last updated: 2026-10-03 · 版本 / Version: 1.0.0
+> 最后更新 / Last updated: 2026-10-10 · 版本 / Version: 1.1.0
 
 ---
 
@@ -307,8 +307,8 @@ node scripts/check-docs-lang.js   → 英文文档无中文；7 份中文文档�
 
 | 文件 | 用途 |
 | --- | --- |
-| `build/libs/aisteve-1.0.0-all.jar` | ✅ **装进 `mods/`**（已打包依赖） |
-| `build/libs/aisteve-1.0.0.jar` | ⚠️ 仅模组自身 class，单独安装会在运行时报 `NoClassDefFoundError` |
+| `build/libs/aisteve-1.1.0-all.jar` | ✅ **装进 `mods/`**（已打包依赖） |
+| `build/libs/aisteve-1.1.0.jar` | ⚠️ 仅模组自身 class，单独安装会在运行时报 `NoClassDefFoundError` |
 
 > 编译仅剩 deprecation 提示（沿用既有 API），无错误。
 

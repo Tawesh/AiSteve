@@ -10,7 +10,7 @@
 #    1) 先【完全关闭游戏】
 #    2) 执行：
 #         powershell -NoProfile -ExecutionPolicy Bypass -File ".\scripts\migrate-to-aisteve.ps1"
-#    3) 删除 mods 里的旧 jar（steve-ai-mod-*.jar），放入新的 aisteve-1.0.0-all.jar
+#    3) 删除 mods 里的旧 jar（steve-ai-mod-*.jar），放入新的 aisteve-1.1.0-all.jar
 #    4) 启动游戏 → 执行 /as cleanup → /as create <名字>
 # ============================================================
 
@@ -100,7 +100,7 @@ if ($newJars) {
     $newJars | ForEach-Object { Write-Host ("   " + $_.Name) -ForegroundColor Green }
 } else {
     Write-Host "!! mods 目录里还没有新版 jar，请把下面这个复制过去：" -ForegroundColor Red
-    Write-Host '   <仓库>\build\libs\aisteve-1.0.0-all.jar' -ForegroundColor White
+    Write-Host '   <仓库>\build\libs\aisteve-1.1.0-all.jar' -ForegroundColor White
 }
 
 Write-Host ""

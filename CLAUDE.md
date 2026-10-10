@@ -33,11 +33,11 @@ AiSteve is a Minecraft 1.20.1 Forge mod that integrates LLM-powered AI companion
 ./gradlew runClient
 ```
 
-**Critical:** Always use `fatJar` for distribution. The default `jar` task produces `aisteve-1.0.0.jar` which contains only mod classes and will crash at runtime with `NoClassDefFoundError` when the AI tries to plan tasks. The `fatJar` task produces `aisteve-1.0.0-all.jar` which bundles required dependencies (resilience4j, caffeine) and is the only version safe to install in `mods/`.
+**Critical:** Always use `fatJar` for distribution. The default `jar` task produces `aisteve-1.1.0.jar` which contains only mod classes and will crash at runtime with `NoClassDefFoundError` when the AI tries to plan tasks. The `fatJar` task produces `aisteve-1.1.0-all.jar` which bundles required dependencies (resilience4j, caffeine) and is the only version safe to install in `mods/`.
 
 **Build outputs:**
-- `build/libs/aisteve-1.0.0-all.jar` ← Install this one
-- `build/libs/aisteve-1.0.0.jar` ← Incomplete, do not distribute
+- `build/libs/aisteve-1.1.0-all.jar` ← Install this one
+- `build/libs/aisteve-1.1.0.jar` ← Incomplete, do not distribute
 
 **Testing in dev:** `./gradlew runClient` uses `run/config/aisteve-common.toml` for config (auto-generated on first launch).
 
@@ -369,7 +369,7 @@ Known locations:
 ```
 
 **Reproduce user issues:**
-- Always test with `aisteve-1.0.0-all.jar` installed in real Minecraft, not just dev environment
+- Always test with `aisteve-1.1.0-all.jar` installed in real Minecraft, not just dev environment
 - Check `config/aisteve-common.toml` exists and has valid keys
 - Verify Forge 47.2.0+ (not Fabric - mod will silently fail to load)
 

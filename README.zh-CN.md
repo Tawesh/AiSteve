@@ -147,16 +147,16 @@ Minecraft ─→ 感知 ─→ 事件总线 ─→ 记忆 / 需求 / 目标 / �
 
 ### 1. 拿到 jar
 
-从 [Releases](https://github.com/Tawesh/AiSteve/releases) 下载 `aisteve-1.0.0-all.jar`，
+从 [Releases](https://github.com/Tawesh/AiSteve/releases) 下载 `aisteve-1.1.0-all.jar`，
 或者自己构建（见[构建](#构建)）。
 
-> ⚠️ **一定要用 `-all` 那个。** 普通的 `aisteve-1.0.0.jar` 只有模组自身的 class，
+> ⚠️ **一定要用 `-all` 那个。** 普通的 `aisteve-1.1.0.jar` 只有模组自身的 class，
 > 单独安装会在 AI 一开始规划任务时报 `NoClassDefFoundError` 崩溃。
 
 ### 2. 放进 `mods/`
 
 ```
-.minecraft/mods/aisteve-1.0.0-all.jar
+.minecraft/mods/aisteve-1.1.0-all.jar
 ```
 
 ### 3. 先启动一次，再填配置
@@ -312,8 +312,8 @@ Windows 上用 `gradlew.bat`。
 
 | 产物 | 用途 |
 | --- | --- |
-| `build/libs/aisteve-1.0.0-all.jar` | ✅ **装这个**（依赖已打包） |
-| `build/libs/aisteve-1.0.0.jar` | ⚠️ 只有模组 class，单独装会崩 |
+| `build/libs/aisteve-1.1.0-all.jar` | ✅ **装这个**（依赖已打包） |
+| `build/libs/aisteve-1.1.0.jar` | ⚠️ 只有模组 class，单独装会崩 |
 
 首次构建要下载 Minecraft、Forge 和 MCP 映射，需要几分钟。
 

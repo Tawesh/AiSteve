@@ -26,7 +26,7 @@ issueTrackerURL="https://github.com/Tawesh/AiSteve/issues"
 
 [[mods]]
 modId="aisteve"
-version="1.0.0"
+version="1.1.0"
 displayName="AiSteve"
 description='''
 An AI companion that actually plays Minecraft with you. Talk to it in plain

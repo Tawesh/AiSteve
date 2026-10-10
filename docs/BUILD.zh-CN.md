@@ -80,8 +80,8 @@ cd AiSteve
 
 | 文件 | 大小(约) | 用途 |
 | --- | --- | --- |
-| `aisteve-1.0.0-all.jar` | ~1.7 MB | ✅ **装进 `mods/` 就用这个**（已含依赖库） |
-| `aisteve-1.0.0.jar` | ~0.2 MB | ⚠️ 仅含模组类，单独安装会在运行期崩溃（开发环境由 Gradle 提供依赖，可用） |
+| `aisteve-1.1.0-all.jar` | ~1.7 MB | ✅ **装进 `mods/` 就用这个**（已含依赖库） |
+| `aisteve-1.1.0.jar` | ~0.2 MB | ⚠️ 仅含模组类，单独安装会在运行期崩溃（开发环境由 Gradle 提供依赖，可用） |
 
 > 也可只跑 `.\gradlew.bat fatJar`（它会自动先执行 `reobfJar`）。
 > GraalVM 相关类刻意未打包：`CodeExecutionEngine` 在本项目中从未被实例化（死代码），
@@ -120,7 +120,7 @@ cd AiSteve
 
 1. 安装 **Minecraft 1.20.1** 并安装 **Forge 47.x**（推荐 47.2.0）。
 2. 启动一次游戏以生成 `.minecraft` 目录结构。
-3. 将第 4.2 步生成的 **`aisteve-1.0.0-all.jar`** 放入 `.minecraft/mods/` 目录。
+3. 将第 4.2 步生成的 **`aisteve-1.1.0-all.jar`** 放入 `.minecraft/mods/` 目录。
 4. 启动游戏，进入任意世界，然后执行 `/as create <名字>`。
 
 ---

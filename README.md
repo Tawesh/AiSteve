@@ -155,18 +155,18 @@ High-frequency requests never touch a paid API:
 
 ### 1. Get the jar
 
-Download `aisteve-1.0.0-all.jar` from
+Download `aisteve-1.1.0-all.jar` from
 [Releases](https://github.com/Tawesh/AiSteve/releases), or build it yourself
 (see [Building](#building)).
 
-> ⚠️ **Use the `-all` jar.** The plain `aisteve-1.0.0.jar` contains only the mod's own
+> ⚠️ **Use the `-all` jar.** The plain `aisteve-1.1.0.jar` contains only the mod's own
 > classes; installing it alone crashes with `NoClassDefFoundError` the moment the AI tries
 > to plan anything.
 
 ### 2. Drop it in `mods/`
 
 ```
-.minecraft/mods/aisteve-1.0.0-all.jar
+.minecraft/mods/aisteve-1.1.0-all.jar
 ```
 
 ### 3. Launch once, then configure
@@ -341,8 +341,8 @@ On Windows use `gradlew.bat`.
 
 | Output | Use |
 | --- | --- |
-| `build/libs/aisteve-1.0.0-all.jar` | ✅ **install this** (dependencies bundled) |
-| `build/libs/aisteve-1.0.0.jar` | ⚠️ mod classes only — crashes if installed alone |
+| `build/libs/aisteve-1.1.0-all.jar` | ✅ **install this** (dependencies bundled) |
+| `build/libs/aisteve-1.1.0.jar` | ⚠️ mod classes only — crashes if installed alone |
 
 The first build downloads Minecraft, Forge and the MCP mappings and takes several minutes.
 

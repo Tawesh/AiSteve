@@ -13,12 +13,12 @@
 ## 0. 安装前提（必读）
 
 - 本模组是 **Minecraft 1.20.1 + Forge** 模组，**不能用于 Fabric**。
-- 装进 `mods\` 的必须是 **`aisteve-1.0.0-all.jar`**（带依赖的版本）。
+- 装进 `mods\` 的必须是 **`aisteve-1.1.0-all.jar`**（带依赖的版本）。
 - 配置在 `config\aisteve-common.toml`（**不是 mods**），改完需**重启游戏**。
 
 | 文件 | 放哪里 |
 | --- | --- |
-| `aisteve-1.0.0-all.jar` | ✅ `mods\` |
+| `aisteve-1.1.0-all.jar` | ✅ `mods\` |
 | `aisteve-common.toml` | ✅ `config\`（不要放 mods！） |
 
 ---
